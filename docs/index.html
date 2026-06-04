@@ -149,9 +149,9 @@
               </a>
             </span>
             <span class="link-block">
-              <span class="button is-normal is-rounded" style="opacity: 0.55; cursor: default;" title="BibTeX coming after arXiv posting">
+              <span class="button is-normal is-rounded" style="opacity: 0.55; cursor: default;" title="Citation after arXiv posting">
                 <span class="icon"><i class="fas fa-quote-right"></i></span>
-                <span>BibTeX (soon)</span>
+                <span>Cite (soon)</span>
               </span>
             </span>
             <span class="link-block">
@@ -373,11 +373,14 @@
       <p>
         A first-draft implementation is in the
         <a href="https://github.com/simeon-ned/predictive-style-matching" target="_blank" rel="noopener">GitHub repository</a>
-        (repo root: predictor training, mjlab RL env <code>Psm-G1</code>). This release is
-        <strong>work in progress</strong>—APIs, defaults, and docs may change.
-        See the <a href="https://github.com/simeon-ned/predictive-style-matching#predictive-style-matching-psm" target="_blank" rel="noopener">README</a>
-        for install and usage. Sim2real deploy follows
-        <a href="https://github.com/unitreerobotics/unitree_rl_mjlab" target="_blank" rel="noopener">unitree_rl_mjlab</a>.
+        (repo root: offline <code>PsmPredictor</code> training; RL via
+        <a href="https://github.com/mujocolab/mjlab" target="_blank" rel="noopener">mjlab</a>
+        task <code>Psm-G1</code>). This release is <strong>work in progress</strong>—APIs, defaults, and docs may change.
+        See the <a href="https://github.com/simeon-ned/predictive-style-matching#dependencies" target="_blank" rel="noopener">README</a>
+        for install and usage.
+        Sim2real deploy follows
+        <a href="https://github.com/unitreerobotics/unitree_rl_mjlab" target="_blank" rel="noopener">unitree_rl_mjlab</a>
+        (mjlab + Unitree G1).
         Questions: <a href="mailto:simkaned@gmail.com">simkaned@gmail.com</a>.
       </p>
     </div>
@@ -414,6 +417,8 @@
         <div class="column is-8">
           <div class="content">
             <p>
+              RL stack built on
+              <a href="https://github.com/mujocolab/mjlab" target="_blank" rel="noopener">mjlab</a>.
               Page template from
               <a href="https://github.com/eliahuhorwitz/Academic-project-page-template" target="_blank" rel="noopener">Academic Project Page Template</a>
               (Nerfies-style).
