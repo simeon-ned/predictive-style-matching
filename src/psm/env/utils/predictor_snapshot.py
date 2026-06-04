@@ -1,11 +1,4 @@
-"""Copy bundled weights into the RL log dir and point ``env.yaml`` at them.
-
-Training writes ``params/env.yaml`` before the runner starts, so it initially
-records whatever ``predictor_path`` was used to construct the env (often a path
-inside the package).  We copy ``metadata.pkl``, ``predictor.pth``, and any
-other files from that directory into ``params/predictor/`` and rewrite
-``env.yaml`` so an old run folder alone is enough to rebuild the same env.
-"""
+"""Copy the active predictor bundle into an RL training log directory."""
 
 from __future__ import annotations
 
@@ -19,14 +12,12 @@ import yaml
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl.vecenv_wrapper import RslRlVecEnvWrapper
 
-from psm.env.mdp.commands import PsmVelocityCommandCfg
 
-
-def snapshot_to_log_dir(
+def snapshot_predictor_to_log_dir(
   env: RslRlVecEnvWrapper,
   log_dir: str | None,
 ) -> None:
-  """Rank-0 only: copy artifacts next to ``params/env.yaml`` and fix path."""
+  """Rank-0 only: copy bundle files to ``params/predictor`` and patch ``env.yaml``."""
   if not log_dir:
     return
   if int(os.environ.get("RANK", "0")) != 0:
@@ -36,13 +27,15 @@ def snapshot_to_log_dir(
   if not isinstance(raw, ManagerBasedRlEnv):
     return
 
+  from psm.env.mdp.commands import PsmVelocityCommandCfg
+
   twist_cfg = raw.cfg.commands.get("twist")
   if not isinstance(twist_cfg, PsmVelocityCommandCfg):
     return
 
   src = Path(twist_cfg.predictor_path).expanduser().resolve()
   if not src.is_dir():
-    print(f"[WARN] psm predictor_path is not a directory: {src}")
+    print(f"[WARN] predictor_path is not a directory: {src}")
     return
 
   log_root = Path(log_dir)
@@ -57,7 +50,7 @@ def snapshot_to_log_dir(
 
   meta: dict[str, Any] = {
     "source_path_at_train_time": str(src),
-    "log_weights_path": str(dst.resolve()),
+    "log_bundle_path": str(dst.resolve()),
     "copied_files": copied,
   }
   with open(dst / "manifest.yaml", "w", encoding="utf-8") as f:
@@ -82,6 +75,9 @@ def snapshot_to_log_dir(
     print(f"[WARN] env.yaml not found at {env_yaml}; files copied but YAML not patched")
 
   print(
-    f"[INFO] PSM weights snapshot: {len(copied)} file(s) -> {dst} "
+    f"[INFO] PSM predictor bundle copied: {len(copied)} file(s) -> {dst} "
     "(see params/predictor/manifest.yaml)"
   )
+
+
+snapshot_to_log_dir = snapshot_predictor_to_log_dir

@@ -36,7 +36,7 @@ from mjlab.rl import (
   RslRlPpoAlgorithmCfg,
 )
 
-from .symmetry_cfg import compute_symmetric_states
+from psm.env.utils.symmetry import compute_symmetric_states
 
 
 @dataclass
@@ -102,8 +102,8 @@ def g1_psm_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     ),
     obs_groups={"actor": ("actor",), "critic": ("critic",)},
     experiment_name="g1_psm",
-    save_interval=50,
+    save_interval=100,
     num_steps_per_env=24,
-    max_iterations=30_000,
+    max_iterations=6_000,
   )
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Pull all LFS blobs under data/ on demand.
 # Run from anywhere inside the repo:
-#   ./scripts/lfs_pull_data.sh
+#   bash src/psm/scripts/lfs_pull_data.sh
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"

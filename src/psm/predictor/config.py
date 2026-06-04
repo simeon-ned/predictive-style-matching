@@ -26,7 +26,8 @@ MOTION_FILES_PATTERN = "data/motions/*.npz"
 # - body_names (list[str]), body_pos_w (T, B, 3), body_quat_w (T, B, 4)
 
 # Logging configuration
-LOGS_DIR = "logs"
+# Offline predictor runs: logs/predictor/<YYYY-MM-DD_HH-MM-SS>/
+LOGS_DIR = "logs/predictor"
 
 # Data augmentation
 MIRROR_DATA = True  # Enable left/right mirroring to improve symmetry

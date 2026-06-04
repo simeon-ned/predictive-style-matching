@@ -1,12 +1,15 @@
 # Predictive Style Matching (PSM)
 
-[![Project Page](https://img.shields.io/badge/Project-Page-2ea44f?style=for-the-badge)](https://simeon-ned.github.io/predictive-style-matching/)
-[![arXiv](https://img.shields.io/badge/arXiv-coming%20soon-b31b1b?style=for-the-badge)](https://simeon-ned.github.io/predictive-style-matching/)
-<!-- [![Cite](https://img.shields.io/badge/Cite-BibTeX-555?style=for-the-badge)](https://github.com/simeon-ned/predictive-style-matching#citation) — enable after arXiv -->
+<div id="top" align="center">
+
+[![arXiv](https://img.shields.io/badge/arXiv-coming%20soon-orange)](https://simeon-ned.github.io/predictive-style-matching/)
+[![](https://img.shields.io/badge/Project-%F0%9F%9A%80-pink)](https://simeon-ned.github.io/predictive-style-matching/)
+
+</div>
+
+<!-- [![Cite](https://img.shields.io/badge/Cite-BibTeX-555)](https://github.com/simeon-ned/predictive-style-matching#citation) — enable after arXiv -->
 
 Code for *Predictive Style Matching: Natural and Robust Humanoid Locomotion* on Unitree G1 (first-draft implementation, **work in progress**).
-
-The project page lives in [`docs/`](docs/) (GitHub Pages). The arXiv badge will point to the preprint once posted; until then it opens the site.
 
 ## Dependencies
 
@@ -31,15 +34,24 @@ psm-predictor-train
 psm-predictor-play --npz data/motions/your_clip.npz
 ```
 
+Logs go to `logs/predictor/<timestamp>/` (`predictor.pth`, `metadata.pkl`, `config.yaml`).
+
 **RL ([mjlab](https://github.com/mujocolab/mjlab))**
 
 ```bash
-psm-env-train Psm-G1 --env.scene.num-envs=4096
+psm-env-train Psm-G1
 psm-env-play Psm-G1
 psm-list-envs   # optional: list registered tasks
 ```
+By default, RL uses the **latest** bundle under `logs/predictor/`, then falls back to `src/psm/predictor/weights/` if none exist. Override:
 
-Logs: `logs/rsl_rl/g1_psm/`. ONNX export: `<run>/params/latest.onnx` when play starts (see [mjlab play](https://mujocolab.github.io/mjlab/)).
+```bash
+psm-env-train Psm-G1 --predictor-path /path/to/bundle
+psm-env-train Psm-G1 --predictor-bundled
+# or: --env.commands.twist.predictor-path /path/to/bundle
+```
+
+Policy logs: `logs/rsl_rl/g1_psm/` (each run snapshots the active predictor under `params/predictor/`). ONNX: `<run>/params/latest.onnx` on play.
 
 **Deploy:** [unitree_rl_mjlab](https://github.com/unitreerobotics/unitree_rl_mjlab) on the robot; copy the exported policy from your play run.
 
@@ -48,11 +60,11 @@ Logs: `logs/rsl_rl/g1_psm/`. ONNX export: `<run>/params/latest.onnx` when play s
 ```text
 ├── README.md           # this file — code & usage
 ├── pyproject.toml
-├── scripts/
 ├── data/
 ├── src/psm/
-│   ├── predictor/      # PsmPredictor training
-│   └── env/            # RL environment (Psm-G1)
+│   ├── predictor/      # training; logs → logs/predictor/; weights/ = packaged fallback
+│   ├── scripts/        # psm-env-train, psm-env-play, utilities
+│   └── env/            # RL (Psm-G1): cfg/, mdp/, runner.py, utils/ (deploy, symmetry, predictor path/log)
 └── docs/               # GitHub Pages project site (not Python)
     ├── index.html
     └── static/

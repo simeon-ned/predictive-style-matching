@@ -1,8 +1,13 @@
 # Predictive Style Matching — Project Page
 
-[![Project Page](https://img.shields.io/badge/Project-Page-2ea44f?style=for-the-badge)](https://simeon-ned.github.io/predictive-style-matching/)
-[![arXiv](https://img.shields.io/badge/arXiv-coming%20soon-b31b1b?style=for-the-badge)](https://simeon-ned.github.io/predictive-style-matching/)
-<!-- [![Cite](https://img.shields.io/badge/Cite-BibTeX-555?style=for-the-badge)](https://github.com/simeon-ned/predictive-style-matching#citation) — enable after arXiv -->
+<div id="top" align="center">
+
+[![arXiv](https://img.shields.io/badge/arXiv-coming%20soon-orange)](https://simeon-ned.github.io/predictive-style-matching/)
+[![](https://img.shields.io/badge/Project-%F0%9F%9A%80-pink)](https://simeon-ned.github.io/predictive-style-matching/)
+
+</div>
+
+<!-- [![Cite](https://img.shields.io/badge/Cite-BibTeX-555)](https://github.com/simeon-ned/predictive-style-matching#citation) — enable after arXiv -->
 
 Project website for *Predictive Style Matching: Natural and Robust Humanoid Locomotion*.
 
