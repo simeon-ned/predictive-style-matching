@@ -22,7 +22,7 @@ Hardware deployment is described for [unitree_rl_mjlab](https://github.com/unitr
 ```bash
 git clone https://github.com/simeon-ned/predictive-style-matching.git
 cd predictive-style-matching
-pip install -e .   # installs psm + mjlab
+uv sync
 ```
 
 ## Quick start
@@ -30,8 +30,8 @@ pip install -e .   # installs psm + mjlab
 **Predictor (offline)**
 
 ```bash
-psm-predictor-train
-psm-predictor-play --npz data/motions/your_clip.npz
+uv run psm-predictor-train
+uv run psm-predictor-play --npz data/motions/your_clip.npz
 ```
 
 Logs go to `logs/predictor/<timestamp>/` (`predictor.pth`, `metadata.pkl`, `config.yaml`).
@@ -39,15 +39,15 @@ Logs go to `logs/predictor/<timestamp>/` (`predictor.pth`, `metadata.pkl`, `conf
 **RL ([mjlab](https://github.com/mujocolab/mjlab))**
 
 ```bash
-psm-env-train Psm-G1
-psm-env-play Psm-G1
-psm-list-envs   # optional: list registered tasks
+uv run psm-env-train Psm-G1
+uv run psm-env-play Psm-G1
+uv run psm-list-envs   # optional: list registered tasks
 ```
 By default, RL uses the **latest** bundle under `logs/predictor/`, then falls back to `src/psm/predictor/weights/` if none exist. Override:
 
 ```bash
-psm-env-train Psm-G1 --predictor-path /path/to/bundle
-psm-env-train Psm-G1 --predictor-bundled
+uv run psm-env-train Psm-G1 --predictor-path /path/to/bundle
+uv run psm-env-train Psm-G1 --predictor-bundled
 # or: --env.commands.twist.predictor-path /path/to/bundle
 ```
 
