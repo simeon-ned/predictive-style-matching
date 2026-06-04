@@ -1,0 +1,154 @@
+data_info:
+  body_feature_names:
+  - pelvis_roll
+  - pelvis_pitch
+  - torso_roll
+  - torso_pitch
+  - left_foot_pitch
+  - right_foot_pitch
+  - left_foot_rel_yaw
+  - right_foot_rel_yaw
+  - step_length
+  - step_width
+  - cadence_hz
+  - double_support_factor
+  - root_height
+  body_vel_names:
+  - root_vx
+  - root_vy
+  - root_wz
+  cmd_feature_names:
+  - root_vx
+  - root_vy
+  - root_wz
+  - traj_pos_15_x
+  - traj_pos_15_y
+  - traj_dir_15_x
+  - traj_dir_15_y
+  - traj_15_yaw
+  - traj_pos_30_x
+  - traj_pos_30_y
+  - traj_dir_30_x
+  - traj_dir_30_y
+  - traj_30_yaw
+  - traj_pos_45_x
+  - traj_pos_45_y
+  - traj_dir_45_x
+  - traj_dir_45_y
+  - traj_45_yaw
+  feet_bodies:
+  - left_ankle_roll_link
+  - right_ankle_roll_link
+  lower_joint_names: &id001
+  - left_hip_pitch_joint
+  - left_hip_roll_joint
+  - left_hip_yaw_joint
+  - left_knee_joint
+  - right_hip_pitch_joint
+  - right_hip_roll_joint
+  - right_hip_yaw_joint
+  - right_knee_joint
+  root_height_mean: 0.7591899695644009
+  training_data_files:
+  - Skeleton 001_Take 2025-05-10 06.32.39 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.28.47 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.25.18 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.27.23 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.32.57 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.26.18 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.29.49 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.32.00 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.29.05 PM.npz
+  - walk1_subject2.npz
+  - Skeleton 001_Take 2025-05-10 06.34.09 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.26.02 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.37.43 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.26.50 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.41.16 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.33.55 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.30.00 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.33.11 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.27.59 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.32.23 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.27.08 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.25.42 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.37.431 PM.npz
+  - walk1_subject2 copy.npz
+  - Skeleton 001_Take 2025-05-10 06.31.48 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.27.42 PM.npz
+  - Skeleton 001_Take 2025-05-10 06.41.161 PM.npz
+  upper_joint_names:
+  - waist_yaw_joint
+  - waist_roll_joint
+  - waist_pitch_joint
+  - left_shoulder_pitch_joint
+  - left_shoulder_roll_joint
+  - left_shoulder_yaw_joint
+  - left_elbow_joint
+  - left_wrist_roll_joint
+  - left_wrist_pitch_joint
+  - left_wrist_yaw_joint
+  - right_shoulder_pitch_joint
+  - right_shoulder_roll_joint
+  - right_shoulder_yaw_joint
+  - right_elbow_joint
+  - right_wrist_roll_joint
+  - right_wrist_pitch_joint
+  - right_wrist_yaw_joint
+log_info:
+  log_dir: logs/2026-04-09_00-07-07
+  timestamp: '2026-04-09T00:07:08.092827'
+model_info:
+  encoder_type: gru
+  history_recency_decay: 0.0
+  horizon: 25
+  output_dim: 300
+  use_foot_velocity: false
+  use_lower_joint_velocity: false
+  use_lower_velocity: false
+training_params:
+  ACTIVATION: gelu
+  AMSGRAD: false
+  BATCH_SIZE: 512
+  ENABLE_FEATURE_REGULARIZATION: true
+  ENABLE_SYMMETRY_LOSS: true
+  ENCODER_HIDDEN_SIZE: 128
+  ENCODER_TYPE: gru
+  FEATURE_REGULARIZATION_CONFIG:
+    '*_foot_pitch': 0.1
+    '*_foot_rel_yaw': 0.05
+    cadence_hz: 0.005
+    double_support_factor: 0.01
+    future_wz_local: 0.1
+    pelvis_pitch: 0.06
+    pelvis_roll: 0.02
+    root_height: 0.0
+    torso_pitch: 0.06
+    torso_roll: 0.02
+    waist_pitch_*: 0.15
+    waist_roll_*: 0.1
+    waist_yaw_*: 0.1
+  FEATURE_REGULARIZATION_WEIGHT: 1.0
+  FEET_HISTORY_WEIGHT: 1.0
+  GRU_NUM_LAYERS: 1
+  HEAD_DROPOUT: 0
+  HEAD_HIDDEN_DEPTH: 2
+  HIDDEN_SIZE: 128
+  HISTORY_HORIZON: 25
+  HISTORY_INPUT_MODE: both
+  HISTORY_RECENCY_DECAY: 0.0
+  HISTORY_USE_FOOT_ENC: true
+  HISTORY_USE_LOWER_ENC: true
+  JOINT_HISTORY_WEIGHT: 1.0
+  LEARNING_RATE: 0.001
+  LOSS_WEIGHTS: {}
+  LOWER_JOINT_NAMES: *id001
+  MIRROR_DATA: true
+  NOISE_STD: 0.01
+  N_EPOCHS: 45000
+  PREDICTION_HORIZON: 10
+  SYMMETRY_LOSS_RAMP_EPOCHS: 2500
+  SYMMETRY_LOSS_WEIGHT: 0.1
+  USE_FOOT_VELOCITY: false
+  USE_LOWER_JOINT_VELOCITY: false
+  USE_WEIGHTED_LOSS: false
