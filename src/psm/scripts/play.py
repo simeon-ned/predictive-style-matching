@@ -11,7 +11,7 @@ For ``Psm-G1``, the frozen predictor next to that checkpoint
 
 For **any** registered task id, policy ONNX is written to
 ``<checkpoint_run_dir>/params/latest.onnx`` **before** the play viewer opens (see
-``psm.env.deploy_paths``; same runner/checkpoint as interactive play).
+``psm.env.utils.deploy``; same runner/checkpoint as interactive play).
 
 ``run_play`` below mirrors ``mjlab.scripts.play.run_play`` with that hook inserted;
 keep it aligned when upgrading mjlab.
@@ -20,7 +20,6 @@ Usage:
   psm-env-play Psm-G1
   psm-env-play Psm-G1 --checkpoint-file /path/to/model.pt
   psm-env-play Psm-G1 --agent zero
-  python scripts/play.py Psm-G1
 """
 
 from __future__ import annotations
@@ -48,7 +47,7 @@ from mjlab.utils.wrappers import VideoRecorder
 from mjlab.viewer import NativeMujocoViewer, ViserPlayViewer
 from mjlab.viewer.viser.viewer import CheckpointManager, format_time_ago
 
-from psm.env.deploy_paths import PLAY_ONNX_LATEST_NAME, PLAY_PARAMS_SUBDIR
+from psm.env.utils.deploy import PLAY_ONNX_LATEST_NAME, PLAY_PARAMS_SUBDIR
 
 
 def _parse_wandb_dt(value: str | datetime) -> datetime:
@@ -379,6 +378,13 @@ def run_play(task_id: str, cfg: PlayConfig) -> None:
 
 def main() -> None:
   import psm.env.register  # noqa: F401
+
+  from psm.scripts._predictor_cli import apply_predictor_cli, log_default_predictor_if_unset
+
+  prog = sys.argv[0]
+  rest = apply_predictor_cli(sys.argv[1:])
+  log_default_predictor_if_unset(rest)
+  sys.argv = [prog, *rest]
 
   if _needs_auto_checkpoint():
     positional = [a for a in sys.argv[1:] if not a.startswith("-")]

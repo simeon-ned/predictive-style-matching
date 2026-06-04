@@ -31,15 +31,27 @@ psm-predictor-train
 psm-predictor-play --npz data/motions/your_clip.npz
 ```
 
+Logs go to `logs/predictor/<timestamp>/` (`predictor.pth`, `metadata.pkl`, `config.yaml`).
+
 **RL ([mjlab](https://github.com/mujocolab/mjlab))**
 
 ```bash
-psm-env-train Psm-G1 --env.scene.num-envs=4096
+psm-env-train Psm-G1
 psm-env-play Psm-G1
 psm-list-envs   # optional: list registered tasks
 ```
 
-Logs: `logs/rsl_rl/g1_psm/`. ONNX export: `<run>/params/latest.onnx` when play starts (see [mjlab play](https://mujocolab.github.io/mjlab/)).
+Defaults: **4096** envs for train, **1** for play (override with `--env.scene.num-envs`).
+
+By default, RL uses the **latest** bundle under `logs/predictor/`, then falls back to `src/psm/predictor/weights/` if none exist. Override:
+
+```bash
+psm-env-train Psm-G1 --predictor-path /path/to/bundle
+psm-env-train Psm-G1 --predictor-bundled
+# or: --env.commands.twist.predictor-path /path/to/bundle
+```
+
+Policy logs: `logs/rsl_rl/g1_psm/` (each run snapshots the active predictor under `params/predictor/`). ONNX: `<run>/params/latest.onnx` on play.
 
 **Deploy:** [unitree_rl_mjlab](https://github.com/unitreerobotics/unitree_rl_mjlab) on the robot; copy the exported policy from your play run.
 
@@ -48,11 +60,11 @@ Logs: `logs/rsl_rl/g1_psm/`. ONNX export: `<run>/params/latest.onnx` when play s
 ```text
 ├── README.md           # this file — code & usage
 ├── pyproject.toml
-├── scripts/
 ├── data/
 ├── src/psm/
-│   ├── predictor/      # PsmPredictor training
-│   └── env/            # RL environment (Psm-G1)
+│   ├── predictor/      # training; logs → logs/predictor/; weights/ = packaged fallback
+│   ├── scripts/        # psm-env-train, psm-env-play, utilities
+│   └── env/            # RL (Psm-G1): cfg/, mdp/, runner.py, utils/ (deploy, symmetry, predictor path/log)
 └── docs/               # GitHub Pages project site (not Python)
     ├── index.html
     └── static/
