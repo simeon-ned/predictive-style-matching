@@ -31,6 +31,8 @@ dev = ["pytest", "ruff"]
 [project.scripts]
 psm-predictor-train = "psm.predictor.train:main"
 psm-predictor-play = "psm.predictor.play:main"
+psm-env-train = "psm._scripts.train:main"
+psm-env-play = "psm._scripts.play:main"
 psm-list-envs = "psm._scripts.list_envs:main"
 
 [project.entry-points."mjlab.tasks"]
