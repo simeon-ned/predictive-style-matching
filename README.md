@@ -34,8 +34,9 @@ psm-predictor-play --npz data/motions/your_clip.npz
 **RL ([mjlab](https://github.com/mujocolab/mjlab))**
 
 ```bash
-python scripts/train.py Psm-G1 --env.scene.num-envs=4096
-python scripts/play.py Psm-G1
+psm-env-train Psm-G1 --env.scene.num-envs=4096
+psm-env-play Psm-G1
+psm-list-envs   # optional: list registered tasks
 ```
 
 Logs: `logs/rsl_rl/g1_psm/`. ONNX export: `<run>/params/latest.onnx` when play starts (see [mjlab play](https://mujocolab.github.io/mjlab/)).
