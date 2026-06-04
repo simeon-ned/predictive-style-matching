@@ -19,6 +19,12 @@ dependencies = [
   "mjlab==1.4.0",
 ]
 
+[project.urls]
+Homepage = "https://simeon-ned.github.io/predictive-style-matching/"
+Repository = "https://github.com/simeon-ned/predictive-style-matching"
+Mjlab = "https://github.com/mujocolab/mjlab"
+MjlabDocs = "https://mujocolab.github.io/mjlab/"
+
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
 
