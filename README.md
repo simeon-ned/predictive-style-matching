@@ -1,80 +1,85 @@
-# Academic Project Page Template
+# Predictive Style Matching — Project Page
 
-> **Update (September 2025)**: This template has been modernized with better design, SEO, and mobile support. For the original version, see the [original-version branch](https://github.com/eliahuhorwitz/Academic-project-page-template/tree/original-version).
+Project website for *Predictive Style Matching: Natural and Robust Humanoid Locomotion*.
 
-A clean, responsive template for academic project pages.
+**Live site:** [https://simeon-ned.github.io/predictive-style-matching/](https://simeon-ned.github.io/predictive-style-matching/)
 
+## Local preview
 
-Example project pages built using this template are:
-- https://horwitz.ai/probex
-- https://vision.huji.ac.il/probegen
-- https://horwitz.ai/mother
-- https://horwitz.ai/spectral_detuning
-- https://vision.huji.ac.il/ladeda
-- https://vision.huji.ac.il/dsire
-- https://horwitz.ai/podd
-- https://dreamix-video-editing.github.io
-- https://horwitz.ai/conffusion
-- https://horwitz.ai/3d_ads/
-- https://vision.huji.ac.il/ssrl_ad
-- https://vision.huji.ac.il/deepsim
+```bash
+cd predictive-style-matching
+python3 -m http.server 8000
+# open http://localhost:8000
+```
 
+## Deploy (GitHub Pages)
 
+1. Push this repo to `simeon-ned/predictive-style-matching` on GitHub.
+2. **Settings → Pages →** source: `master` branch, folder `/ (root)`.
+3. Ensure `.nojekyll` stays at the repo root.
 
-## Start using the template
-To start using the template click on `Use this Template`.
+## arXiv + RA-L (under review)
 
-The template uses html for controlling the content and css for controlling the style. 
-To edit the websites contents edit the `index.html` file. It contains different HTML "building blocks", use whichever ones you need and comment out the rest.  
+IEEE allows [arXiv preprints](https://www.ieee-ras.org/publications/rules-for-the-double-anonymous-review-process/) for RA-L; they are not treated as prior publication. RA-L uses [double-anonymous review](https://www.ieee-ras.org/publications/rules-for-the-double-anonymous-review-process/)—reviewers may find your preprint or site, which is common in robotics.
 
-**IMPORTANT!** Make sure to replace the `favicon.ico` under `static/images/` with one of your own, otherwise your favicon is going to be a dreambooth image of me.
+### Use two PDFs
 
-## What's New
+| Version | Authors | Project URL in paper | Where |
+|--------|---------|----------------------|--------|
+| **Review** | Anonymous | Remove from PDF | IEEE RAS submission |
+| **Public** | Full list | OK | arXiv (link on site when posted); PDF via arXiv, not hosted here yet |
 
-- Modern, clean design with better mobile support
-- Improved SEO with proper meta tags and structured data
-- Performance improvements (lazy loading, optimized assets)
-- More Works dropdown
-- Copy button for BibTeX citations
-- Better accessibility
+The RA-L upload must match the anonymized TeX (no names, no identifiable thanks/URLs). Keep `main.tex` with authors for arXiv; maintain a separate anonymized build for resubmission if needed.
 
-## Components
+### arXiv upload checklist
 
-- Teaser video
-- Image carousel
-- YouTube video embedding
-- Video carousel
-- PDF poster viewer
-- BibTeX citation
+- **Category:** `cs.RO` (primary)
+- **Title / abstract:** Match the public version exactly
+- **PDF:** Deanonymized (full author list; hosted on arXiv only)
+- **Comments (metadata):** Neutral only, e.g. `8 pages, 6 figures, 3 tables` — do **not** write “submitted to RA-L” or name the journal
+- **Source:** Optional; many authors upload `.tex` without internal-only paths
 
-## Customization
+### Project page (while under review)
 
-The HTML file has TODO comments showing what to replace:
+**OK**
 
-- Paper title, authors, institution, conference
-- Links (arXiv, GitHub, etc.)
-- Abstract and descriptions  
-- Videos, images, and PDFs
-- Related works in the dropdown
-- Meta tags for SEO and social sharing
+- Named authors and affiliations
+- arXiv link (when ready), videos, code (when ready)
+- Link to arXiv after posting
 
-### Meta Tags
-The template includes meta tags for better search engine visibility and social media sharing. These appear in the `<head>` section and help with:
-- Google Scholar indexing
-- Social media previews (Twitter, Facebook, LinkedIn)
-- Search engine optimization
+**Avoid**
 
-Create a 1200x630px social preview image at `static/images/social_preview.png`.
+- “Submitted to / under review at IEEE RA-L”
+- `note = {Submitted}` in BibTeX
+- Listing the journal as if already accepted
 
-## Tips
+This site uses **“2026 · Preprint”** and arXiv-style BibTeX until acceptance.
 
-- Compress images with [TinyPNG](https://tinypng.com)
-- Use YouTube for large videos (>10MB)  
-- Replace the favicon in `static/images/`
-- Works with GitHub Pages
+### After arXiv posts
+
+1. In `index.html`, replace the `arXiv (soon)` disabled button with a live link to `https://arxiv.org/abs/XXXX.XXXXX`.
+2. Uncomment the BibTeX section at the bottom; set `eprint` and `url`, enable the BibTeX header button.
+3. Optional: add `citation_arxiv_id` meta tag.
+
+### After RA-L acceptance
+
+- Change venue line to **IEEE Robotics and Automation Letters (RA-L), 2026** (plus vol/issue when known).
+- Switch BibTeX to `@article` with journal, DOI, and IEEE copyright notice on the arXiv PDF per IEEE policy.
+- Keep arXiv version; add link to the IEEE Xplore version.
+
+## Assets
+
+| Asset | Path | Notes |
+|-------|------|--------|
+| Figures | `static/images/` | Sync from `../psm_paper/figures/` |
+| Hero image | `static/images/snapshots.png` | Background in header |
+| Hardware clips | YouTube embeds in `index.html` | Short under Deployment; full at end |
+| Favicon | `static/images/favicon.svg` | Humanoid robot icon |
+
+## Paper source
+
+LaTeX: `../psm_paper/`
 
 ## Acknowledgments
-Parts of this project page were adopted from the [Nerfies](https://nerfies.github.io/) page.
 
-## Website License
-<a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/88x31.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>.
+Built from the [Academic Project Page Template](https://github.com/eliahuhorwitz/Academic-project-page-template).
