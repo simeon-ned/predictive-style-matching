@@ -1,12 +1,15 @@
 # Predictive Style Matching (PSM)
 
-[![Project Page](https://img.shields.io/badge/Project-Page-2ea44f?style=for-the-badge)](https://simeon-ned.github.io/predictive-style-matching/)
-[![arXiv](https://img.shields.io/badge/arXiv-coming%20soon-b31b1b?style=for-the-badge)](https://simeon-ned.github.io/predictive-style-matching/)
-<!-- [![Cite](https://img.shields.io/badge/Cite-BibTeX-555?style=for-the-badge)](https://github.com/simeon-ned/predictive-style-matching#citation) — enable after arXiv -->
+<div id="top" align="center">
+
+[![arXiv](https://img.shields.io/badge/arXiv-coming%20soon-orange)](https://simeon-ned.github.io/predictive-style-matching/)
+[![](https://img.shields.io/badge/Project-%F0%9F%9A%80-pink)](https://simeon-ned.github.io/predictive-style-matching/)
+
+</div>
+
+<!-- [![Cite](https://img.shields.io/badge/Cite-BibTeX-555)](https://github.com/simeon-ned/predictive-style-matching#citation) — enable after arXiv -->
 
 Code for *Predictive Style Matching: Natural and Robust Humanoid Locomotion* on Unitree G1 (first-draft implementation, **work in progress**).
-
-The project page lives in [`docs/`](docs/) (GitHub Pages). The arXiv badge will point to the preprint once posted; until then it opens the site.
 
 ## Dependencies
 
@@ -40,9 +43,6 @@ psm-env-train Psm-G1
 psm-env-play Psm-G1
 psm-list-envs   # optional: list registered tasks
 ```
-
-Defaults: **4096** envs for train, **1** for play (override with `--env.scene.num-envs`).
-
 By default, RL uses the **latest** bundle under `logs/predictor/`, then falls back to `src/psm/predictor/weights/` if none exist. Override:
 
 ```bash
