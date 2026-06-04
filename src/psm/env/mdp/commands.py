@@ -21,7 +21,7 @@ from mjlab.utils.lab_api.math import (
 )
 
 from psm.predictor.psm_predictor import PsmPredictor
-from psm.env.weights.resolve import effective_data_path
+from psm.env.utils.predictor_path import effective_predictor_path
 
 if TYPE_CHECKING:
   from mjlab.viewer.debug_visualizer import DebugVisualizer
@@ -118,7 +118,7 @@ class PsmVelocityCommand(UniformVelocityCommand):
     device = self.device
     robot = self._env.scene[self.cfg.entity_name]
 
-    pred_root, used_log_snap = effective_data_path(self.cfg.predictor_path)
+    pred_root, used_log_snap = effective_predictor_path(self.cfg.predictor_path)
     if used_log_snap:
       self.cfg.predictor_path = pred_root
 

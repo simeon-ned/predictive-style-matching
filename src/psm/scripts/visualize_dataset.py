@@ -4,9 +4,9 @@ Play back NPZ motions in the browser
 
 Run (example)::
 
-  python scripts/visualize_dataset.py
+  python -m psm.scripts.visualize_dataset
 
-Defaults ``--motion-dir`` to ``<psm>/data/motions`` when that folder exists.
+Defaults ``--motion-dir`` to ``<repo>/data/motions`` when that folder exists.
 """
 
 from __future__ import annotations
@@ -23,8 +23,13 @@ import trimesh
 import viser
 from mjviser import ViserMujocoScene
 
-_PSM_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_DATA_DIR = _PSM_ROOT / "data" / "motions"
+def _repo_root() -> Path:
+    import psm
+
+    return Path(psm.__file__).resolve().parent.parent.parent
+
+
+_DEFAULT_DATA_DIR = _repo_root() / "data" / "motions"
 
 
 def _default_model_path() -> Path | None:

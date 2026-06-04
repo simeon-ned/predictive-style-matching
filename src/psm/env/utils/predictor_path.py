@@ -1,31 +1,11 @@
-"""Resolve ``params/predictor`` next to a policy checkpoint from ``sys.argv``.
-
-Play builds the env before the checkpoint is applied to the policy; train does
-the same (env first, then ``runner.load``).  The registered env cfg still has
-the package-default ``predictor_path``.  By scanning ``sys.argv`` when
-``PsmVelocityCommand`` inits, we mirror mjlab's checkpoint resolution:
-
-* **Play:** ``--checkpoint-file`` or ``--wandb-run-path`` (no ``--agent.resume``).
-* **Train resume:** ``--agent.resume True`` with local ``--agent.load-run`` /
-  ``--agent.load-checkpoint`` or with top-level ``--wandb-run-path`` (same as
-  ``mjlab.scripts.train.run_train``).
-
-Fresh training (resume false) keeps the packaged ``data/`` dir unless you
-override ``predictor_path`` in config.
-"""
+"""Resolve which PsmPredictor bundle directory the env should load."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-
-# Must match ``cfg.py`` default: ``weights/data`` next to this package.
-_DEFAULT_PACKAGE_DATA_DIR = Path(__file__).resolve().parent / "data"
-
-
-def package_data_dir() -> Path:
-  return _DEFAULT_PACKAGE_DATA_DIR.resolve()
+from psm.predictor.bundle import is_auto_predictor_path
 
 
 def _argv_flag_value(argv: list[str], *flags: str) -> str | None:
@@ -39,10 +19,10 @@ def _argv_flag_value(argv: list[str], *flags: str) -> str | None:
   return None
 
 
-def _log_bundle_dir_if_valid(run_dir: Path) -> Path | None:
-  snap = (run_dir / "params" / "predictor").resolve()
-  if (snap / "metadata.pkl").is_file() and (snap / "predictor.pth").is_file():
-    return snap
+def _log_predictor_bundle(run_dir: Path) -> Path | None:
+  bundle = (run_dir / "params" / "predictor").resolve()
+  if (bundle / "metadata.pkl").is_file() and (bundle / "predictor.pth").is_file():
+    return bundle
   return None
 
 
@@ -64,7 +44,7 @@ def _train_resume_checkpoint_file(argv: list[str]) -> Path | None:
 
   from mjlab.utils.os import get_checkpoint_path, get_wandb_checkpoint_path
 
-  from psm.env.rl_cfg import g1_psm_ppo_runner_cfg
+  from psm.env.cfg.rsl_rl_cfg import g1_psm_ppo_runner_cfg
 
   experiment_name = g1_psm_ppo_runner_cfg().experiment_name
   log_root_path = (Path("logs") / "rsl_rl" / experiment_name).resolve()
@@ -84,20 +64,20 @@ def _train_resume_checkpoint_file(argv: list[str]) -> Path | None:
   return resume if resume.is_file() else None
 
 
-def infer_log_snapshot_dir_from_argv() -> Path | None:
-  """Return ``.../params/predictor`` next to the checkpoint implied by argv, if valid."""
+def infer_log_predictor_dir_from_argv() -> Path | None:
+  """Return ``<run>/params/predictor`` implied by CLI checkpoint flags, if valid."""
   argv = sys.argv[1:]
 
   ckpt_s = _argv_flag_value(argv, "--checkpoint-file", "--checkpoint_file")
   if ckpt_s is not None:
     resume = Path(ckpt_s).expanduser().resolve()
     if resume.is_file():
-      return _log_bundle_dir_if_valid(resume.parent)
+      return _log_predictor_bundle(resume.parent)
     return None
 
   train_resume_ckpt = _train_resume_checkpoint_file(argv)
   if train_resume_ckpt is not None:
-    return _log_bundle_dir_if_valid(train_resume_ckpt.parent)
+    return _log_predictor_bundle(train_resume_ckpt.parent)
 
   wandb_run = _argv_flag_value(argv, "--wandb-run-path", "--wandb_run_path")
   if wandb_run is None:
@@ -105,35 +85,37 @@ def infer_log_snapshot_dir_from_argv() -> Path | None:
 
   from mjlab.utils.os import get_wandb_checkpoint_path
 
-  from psm.env.rl_cfg import g1_psm_ppo_runner_cfg
+  from psm.env.cfg.rsl_rl_cfg import g1_psm_ppo_runner_cfg
 
   experiment_name = g1_psm_ppo_runner_cfg().experiment_name
   log_root_path = (Path("logs") / "rsl_rl" / experiment_name).resolve()
   ckpt_name = _argv_flag_value(argv, "--wandb-checkpoint-name", "--wandb_checkpoint_name")
   resume, _ = get_wandb_checkpoint_path(log_root_path, Path(wandb_run), ckpt_name)
   if resume.is_file():
-    return _log_bundle_dir_if_valid(resume.parent)
+    return _log_predictor_bundle(resume.parent)
   return None
 
 
-def effective_data_path(cfg_predictor_path: str) -> tuple[str, bool]:
-  """Return (path, used_log_snapshot).
+def effective_predictor_path(cfg_predictor_path: str) -> tuple[str, bool]:
+  """Return ``(path, used_rl_log_bundle)`` for ``PsmVelocityCommand`` init.
 
-  If the config still points at the packaged default ``data/`` and argv
-  references a checkpoint run (play, or train with ``--agent.resume True``) that
-  contains ``params/predictor``, use that log bundle.
+  Custom ``predictor_path`` in config is left unchanged. Auto paths (latest
+  ``logs/predictor`` run or packaged weights) may be replaced by
+  ``<policy_run>/params/predictor`` when play/resume flags imply a checkpoint.
   """
-  cfg_resolved = Path(cfg_predictor_path).expanduser().resolve()
-  default_resolved = package_data_dir()
-  if cfg_resolved != default_resolved:
+  if not is_auto_predictor_path(cfg_predictor_path):
     return cfg_predictor_path, False
 
-  snap = infer_log_snapshot_dir_from_argv()
-  if snap is None:
+  bundle = infer_log_predictor_dir_from_argv()
+  if bundle is None:
     return cfg_predictor_path, False
 
   print(
-    "[INFO] PSM: using weights from log snapshot next to policy checkpoint:\n"
-    f"      {snap}"
+    "[INFO] PSM: using predictor bundle next to policy checkpoint:\n"
+    f"      {bundle}"
   )
-  return str(snap), True
+  return str(bundle), True
+
+
+effective_data_path = effective_predictor_path
+infer_log_snapshot_dir_from_argv = infer_log_predictor_dir_from_argv

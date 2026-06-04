@@ -1,8 +1,9 @@
 """Wrapper for mjlab's train script that auto-registers PSM tasks.
 
 Usage:
-  psm-env-train Psm-G1 --env.scene.num-envs=4096
-  python scripts/train.py Psm-G1 --env.scene.num-envs=4096
+  psm-env-train Psm-G1
+  psm-env-train Psm-G1 --predictor-path logs/predictor/2026-01-01_12-00-00
+  psm-env-train Psm-G1 --predictor-bundled
 
 By default this wrapper sets ``--agent.logger tensorboard`` so training does not
 initialize Weights & Biases (no login prompts). Pass ``--use_wandb`` to use the
@@ -20,6 +21,8 @@ import sys
 from pathlib import Path
 
 import mjlab.utils.os as _mjlab_os
+
+from psm.scripts._predictor_cli import apply_predictor_cli, log_default_predictor_if_unset
 
 log = logging.getLogger(__name__)
 
@@ -117,6 +120,20 @@ def _safe_dump_yaml(filename: Path, data, sort_keys: bool = False) -> None:
 _mjlab_os.dump_yaml = _safe_dump_yaml
 
 
+def _patch_mjlab_train_logging() -> None:
+  import mjlab.scripts.train as mjlab_train
+
+  _run_train = mjlab_train.run_train
+
+  def _run_train_with_psm_log(task_id: str, cfg, log_dir):
+    from psm.scripts._task_log import log_psm_train_config
+
+    log_psm_train_config(task_id, cfg.env)
+    return _run_train(task_id, cfg, log_dir)
+
+  mjlab_train.run_train = _run_train_with_psm_log
+
+
 def main() -> None:
   # Import tasks so register_mjlab_task runs before mjlab reads the registry.
   import psm.env.register  # noqa: F401
@@ -124,8 +141,12 @@ def main() -> None:
   prog = sys.argv[0]
   rest, use_wandb = _filter_argv_for_wandb_flag(sys.argv[1:])
   rest = _apply_motion_file_shortcut(rest)
+  rest = apply_predictor_cli(rest)
+  log_default_predictor_if_unset(rest)
   rest = _apply_default_logger(rest, use_wandb=use_wandb)
   sys.argv = [prog, *rest]
+
+  _patch_mjlab_train_logging()
 
   from mjlab.scripts.train import main as _mjlab_train_main
 
