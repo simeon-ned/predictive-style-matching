@@ -1,11 +1,11 @@
-"""G1 predictive style matching RL environment (flat terrain, loco + PSM rewards)."""
+"""G1 PSM env: ``make_psm_env_cfg`` (MDP terms) and ``psm_env_cfg`` (training weights + play)."""
 
 from __future__ import annotations
 
 import math
-import os
 
 from psm.assets.unitree_g1.g1_constants import G1_ACTION_SCALE, get_g1_robot_cfg
+from psm.predictor.bundle import default_predictor_path
 import psm.env.mdp as mdp
 from psm.env.mdp.commands import PsmVelocityCommandCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -29,7 +29,6 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
-_DEFAULT_PREDICTOR_PATH = os.path.join(os.path.dirname(__file__), "weights/data")
 _G1_FOOT_GEOM_NAMES = tuple(
   f"{side}_foot{i}_collision" for side in ("left", "right") for i in range(1, 8)
 )
@@ -38,6 +37,9 @@ _G1_TORSO_BODY = ("torso_link",)
 _G1_STAND_STILL_BODIES = ("left_ankle_roll_link", "right_ankle_roll_link")
 _G1_FLAT_CONTACT_BODIES = ("left_ankle_roll_link", "right_ankle_roll_link")
 _G1_FOOT_SITES = ("left_foot", "right_foot")
+
+TRAIN_NUM_ENVS = 4096
+PLAY_NUM_ENVS = 1
 
 
 def make_psm_env_cfg() -> ManagerBasedRlEnvCfg:
@@ -161,7 +163,7 @@ def make_psm_env_cfg() -> ManagerBasedRlEnvCfg:
         ang_vel_z=(-1.0, 1.0),
         # heading=(-math.pi, math.pi),
       ),
-      predictor_path=_DEFAULT_PREDICTOR_PATH,
+      predictor_path=default_predictor_path(),
       command_name="twist",
       feet_contact_sensor_name="feet_ground_contact",
       warmup_history_steps=None,
@@ -564,6 +566,7 @@ def make_psm_env_cfg() -> ManagerBasedRlEnvCfg:
 def psm_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   """Training/play config with ``servant_loco_env_cfg``-style weight ramps (flat terrain)."""
   cfg = make_psm_env_cfg()
+  cfg.scene.num_envs = PLAY_NUM_ENVS if play else TRAIN_NUM_ENVS
 
   cfg.rewards["track_linear_velocity"].weight = 4.0
   cfg.rewards["track_angular_velocity"].weight = 5.0

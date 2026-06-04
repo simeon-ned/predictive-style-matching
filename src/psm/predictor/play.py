@@ -20,11 +20,11 @@ import torch
 
 from psm.assets.unitree_g1.g1_constants import G1_XML
 
+from .bundle import PREDICTOR_LOGS_DIR, latest_predictor_train_dir
 from .config import (
     DEVICE,
     HISTORY_HORIZON,
     PREDICTION_HORIZON,
-    LOGS_DIR,
 )
 from .psm_predictor import PsmPredictor
 from .utils import (
@@ -39,18 +39,11 @@ from .visualization import run_viser_visualization
 
 
 def _find_latest_log_dir() -> str:
-    logs_dir = Path(LOGS_DIR)
-    if not logs_dir.exists():
-        raise FileNotFoundError(f"Logs directory not found: {logs_dir}")
-    candidates = []
-    for d in logs_dir.iterdir():
-        if not d.is_dir():
-            continue
-        if (d / "predictor.pth").exists() and (d / "metadata.pkl").exists():
-            candidates.append(d)
-    if not candidates:
-        raise FileNotFoundError(f"No complete log directories found in: {logs_dir}")
-    latest = sorted(candidates, key=lambda p: p.name)[-1]
+    latest = latest_predictor_train_dir()
+    if latest is None:
+        raise FileNotFoundError(
+            f"No complete predictor log found under: {PREDICTOR_LOGS_DIR.resolve()}"
+        )
     return str(latest)
 
 

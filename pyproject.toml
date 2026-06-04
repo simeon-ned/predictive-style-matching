@@ -10,12 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.14"
 license = { text = "BSD-3-Clause" }
 dependencies = [
-  "numpy",
-  "torch>=2.0",
-  "scipy",
   "pyyaml",
-  "mujoco>=3.5",
-  "mjviser>=0.0.9",
   "mjlab==1.4.0",
 ]
 
@@ -31,15 +26,18 @@ dev = ["pytest", "ruff"]
 [project.scripts]
 psm-predictor-train = "psm.predictor.train:main"
 psm-predictor-play = "psm.predictor.play:main"
-psm-env-train = "psm._scripts.train:main"
-psm-env-play = "psm._scripts.play:main"
-psm-list-envs = "psm._scripts.list_envs:main"
+psm-env-train = "psm.scripts.train:main"
+psm-env-play = "psm.scripts.play:main"
+psm-list-envs = "psm.scripts.list_envs:main"
 
 [project.entry-points."mjlab.tasks"]
 psm = "psm.env.register"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"psm.predictor" = ["weights/*.yaml", "weights/*.pkl", "weights/*.pth"]
 
 [tool.ruff]
 line-length = 100

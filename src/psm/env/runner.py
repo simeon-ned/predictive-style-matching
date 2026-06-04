@@ -5,15 +5,11 @@ from typing import Any
 from mjlab.rl.vecenv_wrapper import RslRlVecEnvWrapper
 from mjlab.tasks.velocity.rl.runner import VelocityOnPolicyRunner
 
-from psm.env.weights.snapshot import snapshot_to_log_dir
+from psm.env.utils.predictor_snapshot import snapshot_predictor_to_log_dir
 
 
 class PsmG1OnPolicyRunner(VelocityOnPolicyRunner):
-  """G1 PSM runner using the standard ManagerBasedRlEnv.
-
-  The PSM predictor is integrated via the ``twist`` command term (``PsmVelocityCommand``),
-  so no custom environment subclass is required.
-  """
+  """G1 PSM runner; snapshots packaged predictor weights into the log on train."""
 
   def __init__(
     self,
@@ -24,5 +20,4 @@ class PsmG1OnPolicyRunner(VelocityOnPolicyRunner):
     **kwargs: Any,
   ):
     super().__init__(env, train_cfg, log_dir, device, **kwargs)
-    snapshot_to_log_dir(env, log_dir)
-
+    snapshot_predictor_to_log_dir(env, log_dir)
