@@ -26,6 +26,8 @@ from .config import (
     DEVICE,
     MOTION_FILES_PATTERN,
     LOGS_DIR,
+    ROOT_BODY_NAME,
+    MOTION_BODY_NAMES,
     CHECKPOINT_SAVE_INTERVAL,
     CHECKPOINT_LOG_INTERVAL,
     AMSGRAD,
@@ -139,6 +141,8 @@ def train_model():
         feet_bodies=(FEET_BODIES[0], FEET_BODIES[1]),
         cmd_traj_horizons=CMD_TRAJ_HORIZONS,
         cmd_traj_yaw_frame_deltas=CMD_TRAJ_YAW_FRAME_DELTAS,
+        body_names=MOTION_BODY_NAMES,
+        root_body_name=ROOT_BODY_NAME,
     )
 
     print("Preparing training data...")

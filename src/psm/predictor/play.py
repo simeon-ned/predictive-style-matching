@@ -2,7 +2,7 @@
 """
 NPZ-based tester for the arm matching network.
 
-- Loads a LAFAN-style NPZ motion (same schema as lafan_dataset).
+- Loads an NPZ motion clip (compact or full schema; see ``npz_schema``).
 - Runs the trained predictor in a receding-horizon fashion to overwrite upper joints.
 - Visualizes recorded motion (solid) vs prediction (ghost) via ``run_viser_visualization``.
 """
@@ -26,6 +26,7 @@ from .config import (
     HISTORY_HORIZON,
     PREDICTION_HORIZON,
 )
+from .npz_schema import load_expanded_motion_npz
 from .psm_predictor import PsmPredictor
 from .utils import (
     _finite_diff_velocity_np,
@@ -144,8 +145,8 @@ def _extract_lower_upper_from_npz(
     lower_joint_names,
     upper_joint_names,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    data = np.load(npz_path, allow_pickle=True)
-    joint_names = [str(x) for x in data["joint_names"].tolist()]
+    data = load_expanded_motion_npz(npz_path)
+    joint_names = list(data["joint_names"])
     joint_pos = np.asarray(data["joint_pos"], dtype=np.float64)
     qpos = np.asarray(data["qpos"], dtype=np.float64)
 
@@ -158,8 +159,8 @@ def _extract_lower_upper_from_npz(
 
 
 def _extract_foot_pos_hist_from_npz(npz_path: str, feet_bodies: tuple[str, str]) -> np.ndarray:
-    data = np.load(npz_path, allow_pickle=True)
-    body_names = [str(x) for x in data["body_names"].tolist()]
+    data = load_expanded_motion_npz(npz_path)
+    body_names = list(data["body_names"])
     body_pos_r = np.asarray(data["body_pos_r"], dtype=np.float64)
     lb, rb = feet_bodies
     li = body_names.index(lb)
@@ -171,38 +172,21 @@ def _extract_foot_pos_hist_from_npz(npz_path: str, feet_bodies: tuple[str, str])
 
 def _extract_foot_vel_from_npz(npz_path: str, feet_bodies: tuple[str, str]) -> np.ndarray:
     """Root-frame foot velocities from finite differences (matches training ``foot_vel_hist``)."""
-    data = np.load(npz_path, allow_pickle=True)
+    data = load_expanded_motion_npz(npz_path)
     fp = _extract_foot_pos_hist_from_npz(npz_path, feet_bodies)
-    if "fps" in data:
-        fps_arr = np.asarray(data["fps"], dtype=np.float64).reshape(-1)
-        fps = float(fps_arr[0]) if fps_arr.size > 0 else 50.0
-    else:
-        fps = 50.0
+    fps = float(data["fps"])
     return _finite_diff_velocity_np(fp, fps)
 
 
 def _extract_lower_vel_from_npz(npz_path: str, lower_joint_names) -> np.ndarray:
     """Per-timestep lower joint velocities (matches ``utils.load_motion_data_npz``)."""
-    data = np.load(npz_path, allow_pickle=True)
-    joint_names = [str(x) for x in data["joint_names"].tolist()]
+    data = load_expanded_motion_npz(npz_path)
+    joint_names = list(data["joint_names"])
     joint_pos = np.asarray(data["joint_pos"], dtype=np.float64)
     lower_idx = [joint_names.index(n) for n in lower_joint_names]
     lp = joint_pos[:, lower_idx]
-    if "joint_vel" in data.files:
-        joint_vel = np.asarray(data["joint_vel"], dtype=np.float64)
-        return joint_vel[:, lower_idx]
-    if "fps" in data:
-        fps_arr = np.asarray(data["fps"], dtype=np.float64).reshape(-1)
-        fps = float(fps_arr[0]) if fps_arr.size > 0 else 50.0
-    else:
-        fps = 50.0
-    dt = 1.0 / max(fps, 1e-6)
-    v = np.empty_like(lp)
-    v[0] = (lp[1] - lp[0]) / dt
-    v[-1] = (lp[-1] - lp[-2]) / dt
-    if lp.shape[0] > 2:
-        v[1:-1] = (lp[2:] - lp[:-2]) / (2.0 * dt)
-    return v
+    joint_vel = np.asarray(data["joint_vel"], dtype=np.float64)
+    return joint_vel[:, lower_idx]
 
 
 def _build_velocity_series_from_npz(npz_path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -212,7 +196,7 @@ def _build_velocity_series_from_npz(npz_path: str) -> tuple[np.ndarray, np.ndarr
         body_root_vel: (T, 3)  [root_vx, root_vy, root_wz] in root body frame
         yaw_vel3:   (T, 3)  [vx, vy, wz] yaw-aligned (for Viser arrow only)
     """
-    data = np.load(npz_path, allow_pickle=True)
+    data = load_expanded_motion_npz(npz_path)
     qpos = np.asarray(data["qpos"], dtype=np.float64)
     qvel = np.asarray(data["qvel"], dtype=np.float64)
     vx_local, vy_local, wz_local = compute_body_vel_from_qpos_qvel(qpos, qvel)
@@ -226,12 +210,12 @@ def _compute_body_features_gt_from_npz(npz_path: str) -> dict[str, np.ndarray]:
     from .config import FEET_BODIES
     from scipy.signal import find_peaks, savgol_filter
 
-    data = np.load(npz_path, allow_pickle=True)
+    data = load_expanded_motion_npz(npz_path)
     qpos = np.asarray(data["qpos"], dtype=np.float64)
     root_pos = qpos[:, 0:3]
     root_quat = qpos[:, 3:7]  # wxyz
 
-    body_names = [str(x) for x in data["body_names"].tolist()]
+    body_names = list(data["body_names"])
     body_pos_r = np.asarray(data["body_pos_r"], dtype=np.float64)
     body_quat_r = np.asarray(data["body_quat_r"], dtype=np.float64)
     body_quat_w = np.asarray(data["body_quat_w"], dtype=np.float64)
@@ -276,10 +260,7 @@ def _compute_body_features_gt_from_npz(npz_path: str) -> dict[str, np.ndarray]:
         _estimate_foot_contact_from_kinematics,
     )
 
-    if "fps" in data.files:
-        fps = float(np.asarray(data["fps"], dtype=np.float64).reshape(-1)[0])
-    else:
-        fps = 50.0
+    fps = float(data["fps"])
     dt = 1.0 / max(fps, 1e-6)
     left_contact = _estimate_foot_contact_from_kinematics(left_pos_r, dt)
     right_contact = _estimate_foot_contact_from_kinematics(right_pos_r, dt)
@@ -450,7 +431,7 @@ def main() -> None:
         "--npz",
         type=str,
         required=True,
-        help="Path to input NPZ motion (lafan_dataset-style).",
+        help="Path to input NPZ motion clip.",
     )
     parser.add_argument(
         "--log-dir",
@@ -474,12 +455,8 @@ def main() -> None:
         model, args.npz, metadata
     )
 
-    data_npz = np.load(args.npz, allow_pickle=True)
-    if "fps" in data_npz:
-        fps_arr = np.asarray(data_npz["fps"], dtype=np.float64).reshape(-1)
-        fps = float(fps_arr[0]) if fps_arr.size > 0 else 50.0
-    else:
-        fps = 50.0
+    motion = load_expanded_motion_npz(args.npz)
+    fps = float(motion["fps"])
 
     model_xml = args.model_xml or str(_default_mujoco_model_path())
     print(f"Using MuJoCo model XML: {model_xml}")

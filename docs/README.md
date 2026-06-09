@@ -2,12 +2,11 @@
 
 <div id="top" align="center">
 
-[![arXiv](https://img.shields.io/badge/arXiv-coming%20soon-orange)](https://simeon-ned.github.io/predictive-style-matching/)
+[![arXiv](https://img.shields.io/badge/arXiv-2606.07083-b31b1b)](https://arxiv.org/abs/2606.07083)
 [![](https://img.shields.io/badge/Project-%F0%9F%9A%80-pink)](https://simeon-ned.github.io/predictive-style-matching/)
+[![Cite](https://img.shields.io/badge/Cite-BibTeX-555)](https://simeon-ned.github.io/predictive-style-matching/#bibtex)
 
 </div>
-
-<!-- [![Cite](https://img.shields.io/badge/Cite-BibTeX-555)](https://github.com/simeon-ned/predictive-style-matching#citation) — enable after arXiv -->
 
 Project website for *Predictive Style Matching: Natural and Robust Humanoid Locomotion*.
 
@@ -38,7 +37,7 @@ IEEE allows [arXiv preprints](https://www.ieee-ras.org/publications/rules-for-th
 | Version | Authors | Project URL in paper | Where |
 |--------|---------|----------------------|--------|
 | **Review** | Anonymous | Remove from PDF | IEEE RAS submission |
-| **Public** | Full list | OK | arXiv (link on site when posted); PDF via arXiv, not hosted here yet |
+| **Public** | Full list | OK | [arXiv:2606.07083](https://arxiv.org/abs/2606.07083); PDF via arXiv, not hosted here |
 
 The RA-L upload must match the anonymized TeX (no names, no identifiable thanks/URLs). Keep `main.tex` with authors for arXiv; maintain a separate anonymized build for resubmission if needed.
 
@@ -55,8 +54,7 @@ The RA-L upload must match the anonymized TeX (no names, no identifiable thanks/
 **OK**
 
 - Named authors and affiliations
-- arXiv link (when ready), videos, code (when ready)
-- Link to arXiv after posting
+- [arXiv link](https://arxiv.org/abs/2606.07083), videos, code (when ready)
 
 **Avoid**
 
@@ -66,11 +64,9 @@ The RA-L upload must match the anonymized TeX (no names, no identifiable thanks/
 
 This site uses **“2026 · Preprint”** and arXiv-style BibTeX until acceptance.
 
-### After arXiv posts
+### arXiv posted (2026-06-05)
 
-1. In `index.html`, replace the `arXiv (soon)` disabled button with a live link to `https://arxiv.org/abs/XXXX.XXXXX`.
-2. Uncomment the BibTeX section at the bottom; set `eprint` and `url`, enable the BibTeX header button.
-3. Optional: add `citation_arxiv_id` meta tag.
+Live at [arXiv:2606.07083](https://arxiv.org/abs/2606.07083). Site links and BibTeX are enabled in `index.html`.
 
 ### After RA-L acceptance
 

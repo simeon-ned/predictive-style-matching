@@ -488,21 +488,26 @@ def load_motion_data_npz(
     feet_bodies: Tuple[str, str],
     cmd_traj_horizons: tuple[int, ...] = (8, 16, 24),
     cmd_traj_yaw_frame_deltas: bool = False,
+    body_names: list[str] | None = None,
+    root_body_name: str = "pelvis",
 ):
-    """Load and process motion data from NPZ (LAFAN-style schema).
+    """Load and process motion data from NPZ for predictor training.
 
-    Joint names are supplied by the caller (typically from ``config``) so this loader stays
-    robot-agnostic.
+    Accepts the full schema (``qpos``, ``body_pos_r``, …) and the compact per-clip export
+    (``joint_pos``, ``body_*_w`` only). Missing fields are derived at load time
+    (see ``psm.predictor.npz_schema``).
 
-    Expected NPZ keys:
-    - joint_names: array/list of joint name strings (len J)
-    - joint_pos: joint positions over time, shape (T, J)
-    - qpos: (T, nq), qvel: (T, nv)
-    - body_names: list[str], body_pos_w: (T, B, 3), body_quat_w: (T, B, 4)
+    Minimum NPZ keys (compact export):
+    - joint_names, joint_pos, body_pos_w, body_quat_w, body_lin_vel_w, body_ang_vel_w
+    - optional: joint_vel, fps, robot
     """
+    from .npz_schema import expand_motion_npz
+
     motion_files = glob.glob(motion_files_pattern)
     if not lower_joint_names:
         raise ValueError("lower_joint_names must be non-empty.")
+    if not motion_files:
+        raise FileNotFoundError(f"No motion files matched pattern: {motion_files_pattern!r}")
 
     current_offset = 0
     motion_offsets = []
@@ -520,26 +525,39 @@ def load_motion_data_npz(
     all_root_heights = []
     for motion_path in motion_files:
         npz = np.load(motion_path, allow_pickle=True)
-        qpos = np.asarray(npz["qpos"], dtype=np.float64)
-        all_root_heights.append(qpos[:, 2])
-    if not motion_files:
-        raise FileNotFoundError(f"No motion files matched pattern: {motion_files_pattern!r}")
+        try:
+            motion = expand_motion_npz(
+                npz,
+                body_names=body_names,
+                root_body_name=root_body_name,
+            )
+        finally:
+            npz.close()
+        all_root_heights.append(np.asarray(motion["qpos"], dtype=np.float64)[:, 2])
     all_root_h = np.concatenate(all_root_heights)
     mean_height = float(np.mean(all_root_h))
 
     for motion_path in motion_files:
         npz = np.load(motion_path, allow_pickle=True)
-        joint_names = [str(x) for x in npz["joint_names"].tolist()]
-        joint_pos = np.asarray(npz["joint_pos"], dtype=np.float64)
-        qpos = np.asarray(npz["qpos"], dtype=np.float64)
-        qvel = np.asarray(npz["qvel"], dtype=np.float64)
+        try:
+            motion = expand_motion_npz(
+                npz,
+                body_names=body_names,
+                root_body_name=root_body_name,
+            )
+        finally:
+            npz.close()
 
-        body_names = [str(x) for x in npz["body_names"].tolist()]
-        body_pos_w = np.asarray(npz["body_pos_w"], dtype=np.float64)
-        body_quat_w = np.asarray(npz["body_quat_w"], dtype=np.float64)
-        # Root-frame-relative body pose/orientation (already relative to root in NPZ).
-        body_pos_r = np.asarray(npz["body_pos_r"], dtype=np.float64)
-        body_quat_r = np.asarray(npz["body_quat_r"], dtype=np.float64)
+        joint_names = list(motion["joint_names"])
+        joint_pos = np.asarray(motion["joint_pos"], dtype=np.float64)
+        qpos = np.asarray(motion["qpos"], dtype=np.float64)
+        qvel = np.asarray(motion["qvel"], dtype=np.float64)
+
+        body_names_list = list(motion["body_names"])
+        body_pos_w = np.asarray(motion["body_pos_w"], dtype=np.float64)
+        body_quat_w = np.asarray(motion["body_quat_w"], dtype=np.float64)
+        body_pos_r = np.asarray(motion["body_pos_r"], dtype=np.float64)
+        body_quat_r = np.asarray(motion["body_quat_r"], dtype=np.float64)
 
         upper_indices = [joint_names.index(name) for name in upper_joint_names]
         lower_indices = [joint_names.index(name) for name in lower_joint_names]
@@ -552,23 +570,8 @@ def load_motion_data_npz(
         lower_joints.append(joint_pos[:, lower_indices])
         upper_joints.append(joint_pos[:, upper_indices])
 
-        if "joint_vel" in npz.files:
-            joint_vel = np.asarray(npz["joint_vel"], dtype=np.float64)
-            lower_joint_vel_list.append(joint_vel[:, lower_indices])
-        else:
-            lp = joint_pos[:, lower_indices]
-            if "fps" in npz:
-                fps_arr = np.asarray(npz["fps"], dtype=np.float64).reshape(-1)
-                fps = float(fps_arr[0]) if fps_arr.size > 0 else 50.0
-            else:
-                fps = 50.0
-            dt = 1.0 / max(fps, 1e-6)
-            v = np.empty_like(lp)
-            v[0] = (lp[1] - lp[0]) / dt
-            v[-1] = (lp[-1] - lp[-2]) / dt
-            if lp.shape[0] > 2:
-                v[1:-1] = (lp[2:] - lp[:-2]) / (2.0 * dt)
-            lower_joint_vel_list.append(v)
+        joint_vel = np.asarray(motion["joint_vel"], dtype=np.float64)
+        lower_joint_vel_list.append(joint_vel[:, lower_indices])
 
         # --- Root kinematics (from npz schema) ---
         root_pos = qpos[:, 0:3]
@@ -600,14 +603,16 @@ def load_motion_data_npz(
         # Foot features: use configured foot bodies, but expose canonical names left_foot/right_foot
         left_body, right_body = feet_bodies
         try:
-            left_idx = body_names.index(left_body)
-            right_idx = body_names.index(right_body)
+            left_idx = body_names_list.index(left_body)
+            right_idx = body_names_list.index(right_body)
         except ValueError as e:
             raise KeyError(
                 f"Foot body not found in body_names for {motion_path!r}. "
-                f"Expected {feet_bodies}. Available (first 20): {body_names[:20]}"
+                f"Expected {feet_bodies}. Available (first 20): {body_names_list[:20]}"
             ) from e
-        torso_idx = body_names.index("torso_link") if "torso_link" in body_names else None
+        torso_idx = (
+            body_names_list.index("torso_link") if "torso_link" in body_names_list else None
+        )
         if torso_idx is not None:
             torso_quat_w = body_quat_w[:, torso_idx, :]
             torso_roll, torso_pitch, _ = quaternions_to_rpy(torso_quat_w)
@@ -622,10 +627,7 @@ def load_motion_data_npz(
         right_pos_w = body_pos_w[:, right_idx, :]
         fp = np.concatenate([left_pos_r, right_pos_r], axis=1)
         foot_pos_hist_list.append(fp)
-        if "fps" in npz:
-            fps_foot = float(np.asarray(npz["fps"], dtype=np.float64).reshape(-1)[0])
-        else:
-            fps_foot = 50.0
+        fps_foot = float(motion["fps"])
         foot_vel_hist_list.append(_finite_diff_velocity_np(fp, fps_foot))
 
         # Foot orientation features from root-relative quaternions.
@@ -640,11 +642,7 @@ def load_motion_data_npz(
         step_width_raw = np.abs(right_pos_r[:, 1] - left_pos_r[:, 1])
 
         # Symmetry-friendly gait timing features.
-        if "fps" in npz:
-            fps_arr = np.asarray(npz["fps"], dtype=np.float64).reshape(-1)
-            fps = float(fps_arr[0]) if fps_arr.size > 0 else 50.0
-        else:
-            fps = 50.0
+        fps = float(motion["fps"])
         dt = 1.0 / max(fps, 1e-6)
         left_contact = _estimate_foot_contact_from_kinematics(left_pos_r, dt)
         right_contact = _estimate_foot_contact_from_kinematics(right_pos_r, dt)

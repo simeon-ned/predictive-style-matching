@@ -2,12 +2,11 @@
 
 <div id="top" align="center">
 
-[![arXiv](https://img.shields.io/badge/arXiv-coming%20soon-orange)](https://simeon-ned.github.io/predictive-style-matching/)
+[![arXiv](https://img.shields.io/badge/arXiv-2606.07083-b31b1b)](https://arxiv.org/abs/2606.07083)
 [![](https://img.shields.io/badge/Project-%F0%9F%9A%80-pink)](https://simeon-ned.github.io/predictive-style-matching/)
+[![Cite](https://img.shields.io/badge/Cite-BibTeX-555)](https://github.com/simeon-ned/predictive-style-matching#citation)
 
 </div>
-
-<!-- [![Cite](https://img.shields.io/badge/Cite-BibTeX-555)](https://github.com/simeon-ned/predictive-style-matching#citation) — enable after arXiv -->
 
 Code for *Predictive Style Matching: Natural and Robust Humanoid Locomotion* on Unitree G1 (first-draft implementation, **work in progress**).
 
@@ -72,22 +71,21 @@ Policy logs: `logs/rsl_rl/g1_psm/` (each run snapshots the active predictor unde
 
 Paper TeX may live in a separate private repo during review; figures for the site are under `docs/static/images/`.
 
-<!-- ## Citation — enable after arXiv posting
+## Citation
 
 If you use this work, please cite:
 
 ```bibtex
 @misc{nedelchev2026psm,
   title         = {Predictive Style Matching: Natural and Robust Humanoid Locomotion},
-  author        = {Nedelchev, Simeon and Zaliaev, Eduard and Chaikovskaia, Ekaterina and Davydenko, Egor and Gorbachev, Roman},
+  author        = {Simeon Nedelchev and Ekaterina Chaikovskaia and Egor Davydenko and Eduard Zaliaev and Roman Gorbachev},
   year          = {2026},
-  eprint        = {XXXX.XXXXX},
+  eprint        = {2606.07083},
   archivePrefix = {arXiv},
   primaryClass  = {cs.RO},
-  url           = {https://arxiv.org/abs/XXXX.XXXXX}
+  url           = {https://arxiv.org/abs/2606.07083},
 }
 ```
--->
 
 ## Acknowledgments
 
