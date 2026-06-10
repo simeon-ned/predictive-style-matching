@@ -1,7 +1,8 @@
-"""G1 CSV → NPZ forward kinematics (mjlab/mjwarp)."""
+"""G1 motion data (CSV / GMR PKL) → NPZ forward kinematics (mjlab/mjwarp)."""
 
 from __future__ import annotations
 
+import pickle
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -28,6 +29,8 @@ from psm.assets.unitree_g1.g1_constants import (
     get_g1_robot_cfg,
 )
 from psm.predictor.npz_schema import body_pose_vel_in_root_frame
+
+_GMR_PKL_KEYS = ("fps", "root_pos", "root_rot", "dof_pos")
 
 
 def tyro_cli(fn: Callable[..., None], /, *, bool_shorthand: tuple[str, ...] = ()) -> None:
@@ -69,13 +72,96 @@ def g1_joint_names(model: mujoco.MjModel) -> list[str]:
 
 def peek_csv_dof_width(csv_path: Path, line_range: tuple[int, int] | None = None) -> int:
     if line_range is None:
-        row = np.loadtxt(csv_path, delimiter=",", maxrows=1)
+        row = np.loadtxt(csv_path, delimiter=",", max_rows=1)
     else:
-        row = np.loadtxt(csv_path, delimiter=",", skiprows=line_range[0] - 1, maxrows=1)
+        row = np.loadtxt(csv_path, delimiter=",", skiprows=line_range[0] - 1, max_rows=1)
     row = np.atleast_1d(np.asarray(row, dtype=np.float64))
     if row.size < 8:
         raise ValueError(f"CSV {csv_path} needs root(7)+joints, got {row.size}")
     return int(row.size - 7)
+
+
+def load_gmr_pkl(path: Path) -> dict[str, Any]:
+    """Load a GMR-style pickle (``fps``, ``root_pos``, ``root_rot`` xyzw, ``dof_pos``)."""
+    with path.open("rb") as handle:
+        data = pickle.load(handle)
+    if not isinstance(data, dict):
+        raise TypeError(f"Expected dict in {path}, got {type(data)}")
+    missing = [k for k in _GMR_PKL_KEYS if k not in data]
+    if missing:
+        raise KeyError(f"Missing keys {missing} in {path}")
+    return data
+
+
+def _normalize_joint_name_list(names: Sequence[str]) -> list[str]:
+    out: list[str] = []
+    for raw in names:
+        name = str(raw)
+        if name.startswith("robot/"):
+            name = name[len("robot/") :]
+        if name in ("floating_base_joint", "freejoint", "root_joint"):
+            continue
+        out.append(name)
+    return out
+
+
+def _pick_joint_names_from_pkl(data: dict[str, Any]) -> list[str] | None:
+    for key in ("dof_joint_names", "joint_names", "joint_order"):
+        raw = data.get(key)
+        if raw is None:
+            continue
+        names = _normalize_joint_name_list(list(raw))
+        if names:
+            return names
+    return None
+
+
+def remap_dof_columns(
+    dof_pos: np.ndarray,
+    source_names: list[str],
+    target_names: list[str],
+) -> np.ndarray:
+    if list(source_names) == list(target_names):
+        return dof_pos
+    index = [source_names.index(n) for n in target_names]
+    return dof_pos[:, index]
+
+
+def resolve_gmr_joint_names(
+    data: dict[str, Any],
+    model: mujoco.MjModel,
+) -> tuple[list[str], list[str] | None]:
+    """Map GMR PKL DOFs to compiled G1 joint order."""
+    model_names = g1_joint_names(model)
+    dof_dim = int(np.asarray(data["dof_pos"]).shape[1])
+    if dof_dim != len(model_names):
+        raise ValueError(
+            f"Motion DOF width {dof_dim} != G1 model ({len(model_names)} joints). "
+            "Check that the PKL matches the G1 asset."
+        )
+    source_names = _pick_joint_names_from_pkl(data)
+    if source_names is None:
+        return model_names, None
+    source_names = _normalize_joint_name_list(source_names)
+    if len(source_names) != dof_dim:
+        raise ValueError(
+            f"PKL joint name list length {len(source_names)} != DOF width {dof_dim}"
+        )
+    return model_names, source_names
+
+
+def resolve_input_motion_paths(input_path: str) -> list[Path]:
+    path = Path(input_path).expanduser().resolve()
+    if path.is_file():
+        if path.suffix.lower() not in (".csv", ".pkl"):
+            raise ValueError(f"Unsupported motion format: {path}")
+        return [path]
+    if path.is_dir():
+        files = sorted(list(path.glob("*.csv")) + list(path.glob("*.pkl")))
+        if not files:
+            raise ValueError(f"No .csv or .pkl files in {path}")
+        return files
+    raise ValueError(f"Input path does not exist: {path}")
 
 
 def debias_log_vertical(log: dict[str, Any], body_names: list[str]) -> float:
@@ -94,35 +180,27 @@ def debias_log_vertical(log: dict[str, Any], body_names: list[str]) -> float:
     return z_shift
 
 
-class _CsvMotionLoader:
+class _ResampledMotionLoader:
+    """Resample root + joint trajectories from input_fps to output_fps."""
+
     def __init__(
         self,
-        motion_file: str,
+        *,
         input_fps: int,
         output_fps: int,
         device: torch.device | str,
-        line_range: tuple[int, int] | None = None,
+        base_poss: torch.Tensor,
+        base_rots_wxyz: torch.Tensor,
+        dof_poss: torch.Tensor,
     ):
         self.input_dt = 1.0 / input_fps
         self.output_dt = 1.0 / output_fps
         self.current_idx = 0
         self.device = device
-        if line_range is None:
-            motion = torch.from_numpy(np.loadtxt(motion_file, delimiter=","))
-        else:
-            motion = torch.from_numpy(
-                np.loadtxt(
-                    motion_file,
-                    delimiter=",",
-                    skiprows=line_range[0] - 1,
-                    max_rows=line_range[1] - line_range[0] + 1,
-                )
-            )
-        motion = motion.to(torch.float32).to(device)
-        self.motion_base_poss_input = motion[:, :3]
-        self.motion_base_rots_input = motion[:, 3:7][:, [3, 0, 1, 2]]
-        self.motion_dof_poss_input = motion[:, 7:]
-        self.input_frames = motion.shape[0]
+        self.motion_base_poss_input = base_poss
+        self.motion_base_rots_input = base_rots_wxyz
+        self.motion_dof_poss_input = dof_poss
+        self.input_frames = int(base_poss.shape[0])
         self.duration = (self.input_frames - 1) * self.input_dt
         times = torch.arange(0, self.duration, self.output_dt, device=device, dtype=torch.float32)
         self.output_frames = times.shape[0]
@@ -177,6 +255,84 @@ class _CsvMotionLoader:
         return s, done
 
 
+def _load_csv_arrays(
+    motion_file: str,
+    device: torch.device | str,
+    line_range: tuple[int, int] | None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if line_range is None:
+        motion = torch.from_numpy(np.loadtxt(motion_file, delimiter=","))
+    else:
+        motion = torch.from_numpy(
+            np.loadtxt(
+                motion_file,
+                delimiter=",",
+                skiprows=line_range[0] - 1,
+                max_rows=line_range[1] - line_range[0] + 1,
+            )
+        )
+    motion = motion.to(torch.float32).to(device)
+    base_poss = motion[:, :3]
+    base_rots = motion[:, 3:7][:, [3, 0, 1, 2]]
+    dof_poss = motion[:, 7:]
+    return base_poss, base_rots, dof_poss
+
+
+def _load_gmr_pkl_arrays(
+    motion_file: str,
+    device: torch.device | str,
+    *,
+    pkl_joint_names: list[str] | None,
+    model_joint_names: list[str] | None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    data = load_gmr_pkl(Path(motion_file))
+    root_pos = np.asarray(data["root_pos"], dtype=np.float32)
+    root_rot_xyzw = np.asarray(data["root_rot"], dtype=np.float32)
+    dof_pos = np.asarray(data["dof_pos"], dtype=np.float32)
+    if pkl_joint_names is not None and model_joint_names is not None:
+        dof_pos = remap_dof_columns(dof_pos, pkl_joint_names, model_joint_names)
+    motion = np.concatenate([root_pos, root_rot_xyzw, dof_pos], axis=1, dtype=np.float32)
+    motion = torch.from_numpy(motion).to(device=device)
+    base_poss = motion[:, :3]
+    base_rots = motion[:, 3:7][:, [3, 0, 1, 2]]
+    dof_poss = motion[:, 7:]
+    return base_poss, base_rots, dof_poss
+
+
+def _make_motion_loader(
+    motion_path: Path,
+    *,
+    input_fps: float,
+    output_fps: float,
+    device: torch.device | str,
+    line_range: tuple[int, int] | None,
+    pkl_joint_names: list[str] | None,
+    model_joint_names: list[str] | None,
+) -> _ResampledMotionLoader:
+    suffix = motion_path.suffix.lower()
+    if suffix == ".csv":
+        base_poss, base_rots, dof_poss = _load_csv_arrays(
+            str(motion_path), device, line_range
+        )
+    elif suffix == ".pkl":
+        base_poss, base_rots, dof_poss = _load_gmr_pkl_arrays(
+            str(motion_path),
+            device,
+            pkl_joint_names=pkl_joint_names,
+            model_joint_names=model_joint_names,
+        )
+    else:
+        raise ValueError(f"Unsupported motion format: {motion_path}")
+    return _ResampledMotionLoader(
+        input_fps=int(input_fps),
+        output_fps=int(output_fps),
+        device=device,
+        base_poss=base_poss,
+        base_rots_wxyz=base_rots,
+        dof_poss=dof_poss,
+    )
+
+
 def _init_log(output_fps: float, joint_names: list[str], body_names: list[str]) -> dict[str, Any]:
     keys = (
         "qpos", "qvel", "joint_pos", "joint_vel",
@@ -229,24 +385,34 @@ def _finalize_log(log: dict[str, Any]) -> None:
         log[key] = np.stack(log[key], axis=0)
 
 
-def run_csv_fk(
+def run_motion_fk(
     sim: Simulation,
     scene: Scene,
     *,
     joint_names: list[str],
     body_names: list[str],
-    csv_path: str,
+    motion_path: Path,
     input_fps: float,
     output_fps: float,
     line_range: tuple[int, int] | None,
     renderer: OffscreenRenderer | None,
+    pkl_joint_names: list[str] | None = None,
+    model_joint_names: list[str] | None = None,
 ) -> dict[str, Any]:
-    motion = _CsvMotionLoader(csv_path, int(input_fps), int(output_fps), sim.device, line_range)
+    motion = _make_motion_loader(
+        motion_path,
+        input_fps=input_fps,
+        output_fps=output_fps,
+        device=sim.device,
+        line_range=line_range,
+        pkl_joint_names=pkl_joint_names,
+        model_joint_names=model_joint_names,
+    )
     robot: Entity = scene["robot"]
     j_idx = robot.find_joints(joint_names, preserve_order=True)[0]
     log = _init_log(float(output_fps), joint_names, body_names)
     scene.reset()
-    pbar = tqdm(total=motion.output_frames, desc=f"FK {Path(csv_path).name}", ncols=100)
+    pbar = tqdm(total=motion.output_frames, desc=f"FK {motion_path.name}", ncols=100)
     done = False
     while not done:
         (bp, br, blv, bav, jp, jv), done = motion.next_state()

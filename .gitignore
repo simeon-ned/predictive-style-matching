@@ -10,3 +10,9 @@ logs/
 *.pt
 .DS_Store
 TODO
+
+# Motion datasets — local only (see data/README.md)
+data/**
+!data/README.md
+!data/**/
+!data/**/.gitkeep

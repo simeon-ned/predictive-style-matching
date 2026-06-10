@@ -246,14 +246,16 @@ def resolve_conversion_paths(
             raise FileNotFoundError(f"Dataset path does not exist: {root}")
         out = str(output_dir or root)
         raw = root / "raw"
-        inp = str(input_path or (raw if raw.is_dir() else root))
+        has_raw = raw.is_dir() and (any(raw.glob("*.csv")) or any(raw.glob("*.pkl")))
+        inp = str(input_path or (raw if has_raw else root))
         return inp, out
 
     if dataset is not None:
         root = motions_dir() if dataset == "motions" else repo_root() / "data" / dataset
         out = str(output_dir or root)
         raw = root / "raw"
-        inp = str(input_path or (raw if raw.is_dir() else root))
+        has_raw = raw.is_dir() and (any(raw.glob("*.csv")) or any(raw.glob("*.pkl")))
+        inp = str(input_path or (raw if has_raw else root))
         return inp, out
 
     if input_path is None or output_dir is None:
@@ -319,6 +321,7 @@ def export_extended_clip(
     psm: dict[str, Any],
     joint_names: list[str],
     body_names: list[str],
+    quiet: bool = False,
 ) -> Path:
     out = Path(output_dir).expanduser().resolve() / f"{source_path.stem}.npz"
     save_extended_clip_npz(
@@ -328,7 +331,8 @@ def export_extended_clip(
         joint_names=joint_names,
         body_names=body_names,
     )
-    print(f"[INFO] Exported clip: {out}")
+    if not quiet:
+        print(f"[INFO] Exported clip: {out}")
     return out
 
 
@@ -369,6 +373,98 @@ def write_extended_clip_from_log(
     )
 
 
+def augment_clip_npz(path: Path, *, overwrite: bool = False) -> bool:
+    """Add ``psm_*`` training arrays to one clip NPZ (in place). Returns True if updated."""
+    from psm.predictor.features import compute_predictor_features_from_config
+
+    if not overwrite:
+        with np.load(path, allow_pickle=True) as data:
+            if clip_has_psm_training(data):
+                return False
+
+    with np.load(path, allow_pickle=True) as npz:
+        motion = expand_motion_npz(npz)
+
+    fps = float(motion["fps"])
+    log = {
+        "fps": [fps],
+        "joint_pos": motion["joint_pos"],
+        "joint_vel": motion["joint_vel"],
+        "qpos": motion["qpos"],
+        "qvel": motion["qvel"],
+        "body_pos_w": motion["body_pos_w"],
+        "body_quat_w": motion["body_quat_w"],
+        "body_lin_vel_w": motion["body_lin_vel_w"],
+        "body_ang_vel_w": motion["body_ang_vel_w"],
+        "body_pos_r": motion["body_pos_r"],
+        "body_quat_r": motion["body_quat_r"],
+        "body_lin_vel_r": motion.get("body_lin_vel_r", motion["body_pos_r"] * 0),
+        "body_ang_vel_r": motion.get("body_ang_vel_r", motion["body_pos_r"] * 0),
+    }
+    export_extended_clip(
+        output_dir=path.parent,
+        source_path=path,
+        log=log,
+        psm=compute_predictor_features_from_config({**motion, "fps": fps}),
+        joint_names=list(motion["joint_names"]),
+        body_names=list(motion["body_names"]),
+        quiet=True,
+    )
+    return True
+
+
+def bundle_is_fresh(bundle: Path, clips: list[Path]) -> bool:
+    if not bundle.is_file() or not clips:
+        return False
+    mtime = bundle.stat().st_mtime
+    return all(mtime >= clip.stat().st_mtime for clip in clips)
+
+
+def infer_motion_dataset_root(pattern: str) -> Path | None:
+    """Resolve a motion dataset directory from a glob, directory, or NPZ path."""
+    p = Path(pattern).expanduser()
+    if p.is_dir():
+        return p.resolve()
+    if any(ch in pattern for ch in "*?[]"):
+        parent = (Path.cwd() / p.parent).resolve() if not p.parent.is_absolute() else p.parent.resolve()
+        return parent
+    if p.suffix == ".npz":
+        candidate = (Path.cwd() / p).resolve() if not p.is_absolute() else p.resolve()
+        if candidate.is_file():
+            return candidate.parent
+        parent = (Path.cwd() / p.parent).resolve() if not p.is_absolute() else p.parent.resolve()
+        if parent != Path.cwd().resolve() or p.parent != Path("."):
+            return parent
+    return None
+
+
+def ensure_training_bundle(dataset_root: Path, *, force: bool = False) -> Path:
+    """Augment clip NPZs if needed and build or refresh ``motions.npz``."""
+    from tqdm import tqdm
+
+    root = dataset_root.expanduser().resolve()
+    bundle = training_bundle_path(root)
+    clips = list_clip_npz_files(root)
+
+    if not clips:
+        if bundle.is_file():
+            with np.load(bundle, allow_pickle=True) as data:
+                if bundle_has_psm_training(data):
+                    print(f"[INFO] Using existing training bundle: {bundle}")
+                    return bundle
+        raise FileNotFoundError(f"No clip NPZ files in {root}")
+
+    augmented = sum(augment_clip_npz(path) for path in tqdm(clips, desc="Prepare clips"))
+    if augmented:
+        print(f"[INFO] Augmented {augmented}/{len(clips)} clip(s)")
+
+    if force or not bundle_is_fresh(bundle, clips):
+        stack_training_bundle(clips=clips, output_path=bundle)
+    else:
+        print(f"[INFO] Training bundle up to date: {bundle}")
+    return bundle
+
+
 def stack_training_bundle(*, clips: list[Path], output_path: Path) -> Path:
     """Concatenate extended clip NPZs into one training bundle."""
     from tqdm import tqdm
@@ -398,7 +494,7 @@ def stack_training_bundle(*, clips: list[Path], output_path: Path) -> Path:
     for path in tqdm(clips, desc="Stack clips"):
         data = np.load(path, allow_pickle=True)
         if not clip_has_psm_training(data):
-            raise ValueError(f"{path} lacks PSM keys; run psm-augment-npz or psm-csv-to-npz first")
+            raise ValueError(f"{path} lacks PSM keys; run psm-data-to-npz or psm-augment-npz first")
         length = int(data["psm_lower_joints"].shape[0])
         for key in merged:
             merged[key].append(np.asarray(data[key], dtype=np.float32))

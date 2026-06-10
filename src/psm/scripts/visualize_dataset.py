@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Play back NPZ motions in the browser
+Play back NPZ motions in the browser (Viser + mjviser).
 
-Run (example)::
+Run::
 
-  python -m psm.scripts.visualize_dataset
-
-Defaults ``--motion-dir`` to ``<repo>/data/motions`` when that folder exists.
+  psm-vis-npz --npz data/motions/your_clip.npz
+  psm-vis-npz --motion-dir data/motions
 """
 
 from __future__ import annotations
@@ -22,6 +21,8 @@ import numpy as np
 import trimesh
 import viser
 from mjviser import ViserMujocoScene
+
+from psm.predictor.npz_schema import list_clip_npz_files
 
 def _repo_root() -> Path:
     import psm
@@ -120,9 +121,9 @@ def main() -> None:
         return qpos_local, qvel_local, num_frames_local, float(fps_local), float(dt_local)
 
     if motion_dir is not None and npz_path is None:
-        candidates = sorted(motion_dir.glob("*.npz"))
+        candidates = list_clip_npz_files(motion_dir)
         if not candidates:
-            parser.error(f"No .npz files in --motion-dir: {motion_dir}")
+            parser.error(f"No clip NPZ files in --motion-dir: {motion_dir}")
         npz_path = candidates[0]
     assert npz_path is not None
 
@@ -310,7 +311,7 @@ def main() -> None:
     with tabs.add_tab("Playback", icon=viser.Icon.PLAYER_PLAY):
         motion_dropdown = None
         if motion_dir is not None:
-            motions = sorted(motion_dir.glob("*.npz"))
+            motions = list_clip_npz_files(motion_dir)
             motion_labels = [p.name for p in motions]
             if len(motion_labels) > 1:
                 initial_label = npz_path.name
@@ -423,5 +424,9 @@ def main() -> None:
         server.stop()
 
 
-if __name__ == "__main__":
+def cli() -> None:
     main()
+
+
+if __name__ == "__main__":
+    cli()

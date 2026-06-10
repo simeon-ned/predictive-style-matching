@@ -5,11 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from psm.motion.conversion import tyro_cli
-from psm.predictor.npz_schema import (
-    list_clip_npz_files,
-    stack_training_bundle,
-    training_bundle_path,
-)
+from psm.predictor.npz_schema import ensure_training_bundle
 
 
 def main(
@@ -18,18 +14,9 @@ def main(
     force: bool = False,
 ):
     root = Path(dataset_path).expanduser().resolve()
-    out = Path(output_path).expanduser().resolve() if output_path else training_bundle_path(root)
-    clips = list_clip_npz_files(root)
-    if not clips:
-        raise FileNotFoundError(f"No clip NPZ files in {root}")
-
-    if not force and out.is_file():
-        mtime = out.stat().st_mtime
-        if all(mtime >= p.stat().st_mtime for p in clips):
-            print(f"[INFO] Bundle up to date: {out}")
-            return
-
-    stack_training_bundle(clips=clips, output_path=out)
+    if output_path is not None:
+        raise ValueError("output_path is deprecated; bundle is always data/motions/motions.npz")
+    ensure_training_bundle(root, force=force)
 
 
 def cli() -> None:

@@ -16,10 +16,9 @@ HIDDEN_SIZE = 128
 # Device configuration
 DEVICE = "cuda"
 
-# Training motion: stacked bundle (fast) or per-clip NPZ glob (slow if not augmented).
-MOTION_BUNDLE_PATH = "data/motions/motions.npz"
-MOTION_FILES_PATTERN = MOTION_BUNDLE_PATH
-MOTION_CLIP_GLOB = "data/motions/*.npz"
+# Training motion: per-clip NPZ glob; train auto-builds data/motions/motions.npz.
+MOTION_DIR = "data/motions"
+MOTION_FILES_PATTERN = f"{MOTION_DIR}/*.npz"
 
 # NPZ schema: compact per-clip export and optional full fields (``qpos``, ``body_pos_r``, …).
 # Minimum keys: joint_names, joint_pos, body_pos_w, body_quat_w, body_lin_vel_w, body_ang_vel_w.

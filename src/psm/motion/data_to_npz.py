@@ -1,4 +1,4 @@
-"""Convert G1 CSV motions to extended NPZ (FK + PSM features)."""
+"""Convert G1 motion data (CSV or GMR PKL) to extended NPZ (FK + PSM features)."""
 
 from __future__ import annotations
 
@@ -14,23 +14,27 @@ from psm.motion.conversion import (
     debias_log_vertical,
     g1_conversion_scene,
     g1_joint_names,
+    load_gmr_pkl,
     peek_csv_dof_width,
-    run_csv_fk,
+    resolve_gmr_joint_names,
+    resolve_input_motion_paths,
+    run_motion_fk,
     tyro_cli,
 )
 from psm.predictor.npz_schema import resolve_conversion_paths, write_extended_clip_from_log
 
 
-def _csv_paths(input_path: str) -> list[Path]:
-    path = Path(input_path).expanduser().resolve()
-    if path.is_file():
-        return [path]
-    if path.is_dir():
-        files = sorted(path.glob("*.csv"))
-        if not files:
-            raise ValueError(f"No .csv files in {path}")
-        return files
-    raise ValueError(f"Input path does not exist: {path}")
+def _effective_input_fps(
+    motion_path: Path,
+    *,
+    input_fps: float | None,
+    default_csv_fps: float,
+) -> float:
+    if motion_path.suffix.lower() == ".pkl":
+        if input_fps is not None:
+            return float(input_fps)
+        return float(load_gmr_pkl(motion_path)["fps"])
+    return float(input_fps if input_fps is not None else default_csv_fps)
 
 
 def main(
@@ -38,7 +42,7 @@ def main(
     output_dir: str | None = None,
     dataset: str | None = None,
     dataset_path: str | None = None,
-    input_fps: float = 30.0,
+    input_fps: float | None = None,
     output_fps: float = 50.0,
     device: str = "cuda:0",
     render: bool = False,
@@ -56,7 +60,7 @@ def main(
         output_dir=output_dir,
     )
     print(f"[INFO] input={input_path} output={output_dir}")
-    csv_files = _csv_paths(input_path)
+    motion_files = resolve_input_motion_paths(input_path)
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     sim_cfg = SimulationCfg()
@@ -64,8 +68,13 @@ def main(
     scene = Scene(g1_conversion_scene(), device=device)
     model = scene.compile()
     joint_names = g1_joint_names(model)
-    if peek_csv_dof_width(csv_files[0], line_range) != len(joint_names):
-        raise ValueError("CSV joint count does not match G1 model")
+
+    first = motion_files[0]
+    if first.suffix.lower() == ".csv":
+        if peek_csv_dof_width(first, line_range) != len(joint_names):
+            raise ValueError("CSV joint count does not match G1 model")
+    else:
+        resolve_gmr_joint_names(load_gmr_pkl(first), model)
 
     sim = Simulation(num_envs=1, cfg=sim_cfg, model=model, device=device)
     scene.initialize(sim.mj_model, sim.model, sim.data)
@@ -81,29 +90,41 @@ def main(
         renderer = OffscreenRenderer(model=sim.mj_model, cfg=viewer_cfg, scene=scene)
         renderer.initialize()
 
-    for csv_path in csv_files:
-        log = run_csv_fk(
+    for motion_path in motion_files:
+        pkl_joint_names: list[str] | None = None
+        model_joint_names: list[str] | None = None
+        if motion_path.suffix.lower() == ".pkl":
+            model_joint_names, pkl_joint_names = resolve_gmr_joint_names(
+                load_gmr_pkl(motion_path), model
+            )
+        clip_input_fps = _effective_input_fps(
+            motion_path, input_fps=input_fps, default_csv_fps=30.0
+        )
+        print(f"[INFO] Converting {motion_path.name} (input_fps={clip_input_fps})")
+        log = run_motion_fk(
             sim, scene,
             joint_names=joint_names,
             body_names=body_names,
-            csv_path=str(csv_path),
-            input_fps=input_fps,
+            motion_path=motion_path,
+            input_fps=clip_input_fps,
             output_fps=output_fps,
-            line_range=line_range,
+            line_range=line_range if motion_path.suffix.lower() == ".csv" else None,
             renderer=renderer,
+            pkl_joint_names=pkl_joint_names,
+            model_joint_names=model_joint_names,
         )
         if debias_z:
             print(f"[INFO] debias_z={debias_log_vertical(log, body_names):.6f} m")
         write_extended_clip_from_log(
             output_dir=output_dir,
-            source_path=csv_path,
+            source_path=motion_path,
             log=log,
             joint_names=joint_names,
             body_names=body_names,
             fps=float(output_fps),
         )
 
-    print(f"[INFO] Finished {len(csv_files)} clip(s)")
+    print(f"[INFO] Finished {len(motion_files)} clip(s)")
 
 
 def cli() -> None:

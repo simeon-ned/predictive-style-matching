@@ -3,24 +3,34 @@
 ## Quick start (recommended)
 
 ```bash
-# 1. CSV → extended NPZ (FK + PSM features, GPU)
-psm-csv-to-npz --dataset motions --robot g1
+# CSV or GMR PKL → extended NPZ (FK + PSM features, GPU)
+psm-data-to-npz --input-path data/seed --output-dir data/motions
 
 # Or augment existing compact NPZ clips in place:
 psm-augment-npz --input-path data/motions
 
-# 2. Stack clips into one training bundle
-psm-stack-motions --dataset-path data/motions
-
-# 3. Train (loads data/motions/motions.npz in seconds)
+# Train (auto-builds motions.npz from clips if needed)
 psm-predictor-train
+
+# Visualize a converted clip (Viser browser viewer)
+psm-vis-npz --npz data/motions/your_clip.npz
+psm-vis-npz --motion-dir data/motions
 ```
+
+## Input formats (`psm-data-to-npz`)
+
+| Format | Layout |
+|--------|--------|
+| **CSV** | `root_pos(3) + root_rot_xyzw(4) + joint_pos(n_dof)` per row, no header. Default input rate 30 Hz. |
+| **PKL (GMR)** | Dict with `fps`, `root_pos (T×3)`, `root_rot (T×4, xyzw)`, `dof_pos (T×n_dof)`. Optional: `joint_names`, `dof_joint_names`, or `joint_order`. |
+
+Both are resampled to 50 Hz and run through G1 FK before export.
 
 ## Layout
 
 | Path | Role |
 |------|------|
-| `data/motions/raw/` | Source CSV clips (optional) |
+| `data/motions/raw/` | Source CSV/PKL clips (optional) |
 | `data/motions/*.npz` | Per-clip extended NPZ (`psm_*` keys + kinematics) |
 | `data/motions/motions.npz` | Stacked training bundle (`segment_start_idx`, …) |
 
@@ -35,10 +45,8 @@ Feature config is baked in at conversion time (`psm.predictor.config` joint list
 
 ## Legacy compact NPZ
 
-Clips without `psm_*` keys still load via the slow path (`npz_schema` expansion + runtime feature compute). Use `psm-augment-npz` to upgrade them.
+Clips without `psm_*` keys are upgraded automatically when you run `psm-predictor-train`, or manually via `psm-augment-npz`.
 
-Fetch LFS data:
+## Git
 
-```bash
-bash src/psm/scripts/lfs_pull_data.sh
-```
+Motion files under `data/` are **gitignored** (not pushed). Only `data/README.md` and `.gitkeep` placeholders are tracked. Add your own CSV/PKL clips locally.

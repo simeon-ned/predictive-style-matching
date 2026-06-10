@@ -491,7 +491,7 @@ def _validate_psm_joint_config(
     if stored_lower != lower_joint_names or stored_upper != upper_joint_names:
         raise ValueError(
             f"PSM NPZ joint lists in {source!r} do not match config. "
-            f"Re-run psm-csv-to-npz or psm-augment-npz with current config, or update config."
+            f"Re-run psm-data-to-npz or psm-augment-npz with current config, or update config."
         )
 
 
@@ -681,141 +681,56 @@ def load_motion_data_npz(
     body_names: list[str] | None = None,
     root_body_name: str = "pelvis",
 ):
-    """Load and process motion data from NPZ for predictor training.
+    """Load motion data for predictor training.
 
-    Accepts the full schema (``qpos``, ``body_pos_r``, …) and the compact per-clip export
-    (``joint_pos``, ``body_*_w`` only). Missing fields are derived at load time
-    (see ``psm.predictor.npz_schema``).
-
-    Minimum NPZ keys (compact export):
-    - joint_names, joint_pos, body_pos_w, body_quat_w, body_lin_vel_w, body_ang_vel_w
-    - optional: joint_vel, fps, robot
-
-    Fast path: merged ``motions.npz`` or per-clip files with ``psm_*`` keys (from
-    ``psm-csv-to-npz`` / ``psm-augment-npz`` + ``psm-stack-motions``).
+    Resolves a dataset directory from ``motion_files_pattern`` (directory, clip glob, or
+    NPZ path), augments clips missing ``psm_*`` keys, builds ``motions.npz`` if needed,
+    then loads the stacked bundle.
     """
-    from psm.predictor.features import compute_predictor_features_from_config
     from psm.predictor.npz_schema import (
+        BUNDLE_FILENAME,
         bundle_has_psm_training,
-        clip_has_psm_training,
-        expand_motion_npz,
+        ensure_training_bundle,
+        infer_motion_dataset_root,
     )
+
+    if not lower_joint_names:
+        raise ValueError("lower_joint_names must be non-empty.")
+
+    dataset_root = infer_motion_dataset_root(motion_files_pattern)
+    if dataset_root is not None:
+        bundle_path = ensure_training_bundle(dataset_root)
+        print(f"[INFO] Loading training bundle: {bundle_path}")
+        return _load_psm_training_bundle(
+            str(bundle_path),
+            upper_joint_names=upper_joint_names,
+            lower_joint_names=lower_joint_names,
+        )
 
     motion_files = sorted(glob.glob(motion_files_pattern))
     if motion_files_pattern.endswith(".npz") and not motion_files:
-        # Explicit single-file path (not a glob).
         candidate = motion_files_pattern
         if Path(candidate).is_file():
             motion_files = [candidate]
 
-    if not lower_joint_names:
-        raise ValueError("lower_joint_names must be non-empty.")
     if not motion_files:
         raise FileNotFoundError(f"No motion files matched pattern: {motion_files_pattern!r}")
 
-    if len(motion_files) == 1:
+    if len(motion_files) == 1 and Path(motion_files[0]).name != BUNDLE_FILENAME:
         npz = np.load(motion_files[0], allow_pickle=True)
         is_bundle = bundle_has_psm_training(npz)
         npz.close()
         if is_bundle:
-            print(f"[INFO] Fast load: PSM training bundle {motion_files[0]}")
+            print(f"[INFO] Loading training bundle: {motion_files[0]}")
             return _load_psm_training_bundle(
                 motion_files[0],
                 upper_joint_names=upper_joint_names,
                 lower_joint_names=lower_joint_names,
             )
 
-    sample = np.load(motion_files[0], allow_pickle=True)
-    try:
-        all_precomputed = clip_has_psm_training(sample)
-    finally:
-        sample.close()
-    if all_precomputed:
-        for path in motion_files[1:]:
-            check = np.load(path, allow_pickle=True)
-            try:
-                if not clip_has_psm_training(check):
-                    all_precomputed = False
-                    break
-            finally:
-                check.close()
-    if all_precomputed:
-        print(f"[INFO] Fast load: {len(motion_files)} precomputed PSM clip(s)")
-        return _load_psm_clips_precomputed(
-            motion_files,
-            upper_joint_names=upper_joint_names,
-            lower_joint_names=lower_joint_names,
-        )
-
-    print("[INFO] Slow load: computing features from kinematics (consider psm-augment-npz)")
-
-    parts: dict[str, list[np.ndarray]] = {
-        "psm_lower_joints": [],
-        "psm_lower_joint_vel": [],
-        "psm_upper_joints": [],
-        "psm_foot_pos_hist": [],
-        "psm_foot_vel_hist": [],
-        "psm_body_vel": [],
-        "psm_cmd_features": [],
-        "psm_body_features": [],
-    }
-    motion_offsets: list[int] = []
-    motion_lengths: list[int] = []
-    offset = 0
-    meta: dict | None = None
-    root_heights: list[np.ndarray] = []
-
-    for motion_path in motion_files:
-        npz = np.load(motion_path, allow_pickle=True)
-        try:
-            motion = expand_motion_npz(
-                npz,
-                body_names=body_names,
-                root_body_name=root_body_name,
-            )
-        finally:
-            npz.close()
-
-        psm = compute_predictor_features_from_config(motion)
-        if meta is None:
-            meta = {
-                "body_feature_names": list(psm["psm_body_feature_names"]),
-                "cmd_feature_names": list(psm["psm_cmd_feature_names"]),
-                "horizons": tuple(int(x) for x in np.asarray(psm["psm_cmd_traj_horizons"]).tolist()),
-                "yaw_deltas": bool(
-                    int(np.asarray(psm["psm_cmd_traj_yaw_frame_deltas"]).reshape(-1)[0])
-                ),
-            }
-        length = int(psm["psm_lower_joints"].shape[0])
-        motion_offsets.append(offset)
-        motion_lengths.append(length)
-        offset += length
-        for key in parts:
-            parts[key].append(np.asarray(psm[key]))
-        rh_idx = meta["body_feature_names"].index("root_height")
-        root_heights.append(np.asarray(psm["psm_body_features"][:, rh_idx], dtype=np.float64))
-
-    assert meta is not None
-    body_features_arr = np.concatenate(parts["psm_body_features"], axis=0)
-    return _psm_arrays_to_training_dict(
-        lower_joints=np.concatenate(parts["psm_lower_joints"], axis=0),
-        lower_joint_vel=np.concatenate(parts["psm_lower_joint_vel"], axis=0),
-        upper_joints=np.concatenate(parts["psm_upper_joints"], axis=0),
-        foot_pos_hist=np.concatenate(parts["psm_foot_pos_hist"], axis=0),
-        foot_vel_hist=np.concatenate(parts["psm_foot_vel_hist"], axis=0),
-        body_vel=np.concatenate(parts["psm_body_vel"], axis=0),
-        cmd_features=np.concatenate(parts["psm_cmd_features"], axis=0),
-        body_features_arr=body_features_arr,
-        body_feature_names=meta["body_feature_names"],
-        cmd_feature_names=meta["cmd_feature_names"],
-        cmd_traj_horizons=meta["horizons"],
-        cmd_traj_yaw_frame_deltas=meta["yaw_deltas"],
-        motion_offsets=motion_offsets,
-        motion_lengths=motion_lengths,
-        upper_joint_names=upper_joint_names,
-        lower_joint_names=lower_joint_names,
-        motion_files=motion_files,
-        root_height_mean=float(np.mean(np.concatenate(root_heights))),
+    raise FileNotFoundError(
+        f"Could not resolve motion dataset from pattern {motion_files_pattern!r}. "
+        f"Use a directory, clip glob (e.g. data/motions/*.npz), or an existing bundle."
     )
 
 
