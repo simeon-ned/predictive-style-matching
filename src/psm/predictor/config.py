@@ -16,14 +16,15 @@ HIDDEN_SIZE = 128
 # Device configuration
 DEVICE = "cuda"
 
-# Data paths (NPZ only; produced by `lafan_dataset/csv_to_npz.py`)
-# Store NPZ motions here (same folder the PKLs used to be in).
+# Data paths (NPZ motion clips for predictor training).
 MOTION_FILES_PATTERN = "data/motions/*.npz"
 
-# Expected NPZ keys: joint_names (list[str]), joint_pos (T, J), and optionally fps.
-# This upgraded training pipeline also uses:
-# - qpos (T, nq), qvel (T, nv)
-# - body_names (list[str]), body_pos_w (T, B, 3), body_quat_w (T, B, 4)
+# NPZ schema: compact per-clip export and optional full fields (``qpos``, ``body_pos_r``, …).
+# Minimum keys: joint_names, joint_pos, body_pos_w, body_quat_w, body_lin_vel_w, body_ang_vel_w.
+# ``load_motion_data_npz`` derives qpos/qvel and root-frame body arrays when absent (see npz_schema.py).
+ROOT_BODY_NAME = "pelvis"
+# Link body order when ``body_names`` is omitted from NPZ (None = infer from ``robot`` / G1 asset).
+MOTION_BODY_NAMES = None
 
 # Logging configuration
 # Offline predictor runs: logs/predictor/<YYYY-MM-DD_HH-MM-SS>/
@@ -32,9 +33,9 @@ LOGS_DIR = "logs/predictor"
 # Data augmentation
 MIRROR_DATA = True  # Enable left/right mirroring to improve symmetry
 SYMMETRY_SPEC = [
-    # Mirroring across sagittal plane for G1 joints in `lafan_dataset/g1_joint_order.py`.
+    # Mirroring across sagittal plane for G1 joints (see ``psm.assets.unitree_g1``).
     #
-    # Signs are derived from the joint axis in `lafan_dataset/robot_description/g1.xml`:
+    # Signs are derived from joint axes in ``psm/assets/unitree_g1/xmls/g1.xml``:
     # - axis along X or Z flips sign under mirroring; axis along Y keeps sign.
     ("left_hip_pitch_joint", "right_hip_pitch_joint", 1),   # axis (0,1,0)
     ("left_hip_roll_joint", "right_hip_roll_joint", -1),    # axis (1,0,0)
