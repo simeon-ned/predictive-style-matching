@@ -74,23 +74,46 @@ _SYMMETRY_SPEC = [
 ]
 
 
+def _policy_joint_names(unwrapped_env: ManagerBasedRlEnv) -> list[str]:
+  """Joint names in policy action / joint_pos / joint_vel tensor order."""
+  return list(unwrapped_env.action_manager.get_term("joint_pos").target_names)
+
+
+def _build_symmetry_map(
+  ordered_names: list[str],
+  device: torch.device,
+  symmetry_spec: list[tuple[str, str, int]] = _SYMMETRY_SPEC,
+) -> tuple[torch.Tensor, torch.Tensor]:
+  """Build an index/scale mirror map for a specific ordered name list."""
+  n = len(ordered_names)
+  indices = torch.arange(n, device=device)
+  scales = torch.ones(n, device=device)
+  name_to_idx = {name: idx for idx, name in enumerate(ordered_names)}
+
+  for name_a, name_b, scale in symmetry_spec:
+    ia = name_to_idx.get(name_a)
+    ib = name_to_idx.get(name_b)
+    if ia is None or ib is None:
+      continue
+    indices[[ia, ib]] = indices[[ib, ia]]
+    scales[ia] = scale
+    scales[ib] = scale
+
+  if not torch.equal(indices[indices], torch.arange(n, device=device)):
+    raise RuntimeError(
+      "Symmetry index map is not an involution for names: "
+      f"{ordered_names}"
+    )
+  return indices, scales
+
+
 def _apply_symmetry(
   names: list[str],
   n: int,
   device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
   """Return (indices, scales) that implement the left-right reflection."""
-  indices = torch.arange(n, device=device)
-  scales = torch.ones(n, device=device)
-
-  for name_a, name_b, scale in _SYMMETRY_SPEC:
-    if name_a in names and name_b in names:
-      ia, ib = names.index(name_a), names.index(name_b)
-      indices[[ia, ib]] = indices[[ib, ia]]
-      scales[ia] = scale
-      scales[ib] = scale
-
-  return indices, scales
+  return _build_symmetry_map(names[:n], device)
 
 
 def _apply_body_feature_symmetry(
@@ -178,12 +201,11 @@ def _append_term_maps(
     return act_indices + offset_idx, act_scales, offset_idx + term_flat_dim
 
   if term_name in ("joint_pos", "joint_vel"):
-    robot = unwrapped_env.scene["robot"]
-    joint_names = list(robot.joint_names)
+    joint_names = _policy_joint_names(unwrapped_env)
     assert len(joint_names) == term_flat_dim, (
       f"{term_name}: joint count {len(joint_names)} vs flat dim {term_flat_dim}"
     )
-    j_idx, j_scale = _apply_symmetry(joint_names, len(joint_names), device)
+    j_idx, j_scale = _build_symmetry_map(joint_names, device)
     return j_idx + offset_idx, j_scale, offset_idx + term_flat_dim
 
   if term_name in ("foot_height", "foot_air_time", "foot_contact"):
@@ -226,11 +248,8 @@ def _action_reflection(
   unwrapped_env: ManagerBasedRlEnv,
   device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-  """Return (action_indices, action_scales) — mirrors AP's helper."""
-  entity_name = unwrapped_env.action_manager.cfg["joint_pos"].entity_name
-  actuator_names = list(unwrapped_env.scene[entity_name].actuator_names)
-  n = len(actuator_names)
-  return _apply_symmetry(actuator_names, n, device)
+  """Return (action_indices, action_scales) in policy joint order."""
+  return _build_symmetry_map(_policy_joint_names(unwrapped_env), device)
 
 
 def _build_indices_and_scales_for_group(
