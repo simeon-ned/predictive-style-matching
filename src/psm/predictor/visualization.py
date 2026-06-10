@@ -40,8 +40,8 @@ def run_viser_visualization(
     ghost_model.geom_rgba[:] = ghost_rgba
 
     server = viser.ViserServer(label="Arm matching (mjlab viewer)")
-    scene = ViserMujocoScene.create(server, model, num_envs=1)
-    scene.create_visualization_gui(show_debug_viz_control=False)
+    scene = ViserMujocoScene(server, model, num_envs=1)
+    scene.create_visualization_gui()
     scene.debug_visualization_enabled = True
 
     # Optional time-series plots for body features (e.g., step_length, step_width).
@@ -62,9 +62,47 @@ def run_viser_visualization(
     current_frame = 0
     playing = False
     show_ghost = True
-    # Reuse buffers to reduce per-frame allocations in visualization callbacks.
     ghost_qpos_cache = np.zeros(model.nq, dtype=original_qpos.dtype)
     vel_local = np.zeros(3, dtype=np.float64)
+
+    def _render_frame(frame_idx: int) -> None:
+        data_pred.qpos[:] = original_qpos[frame_idx]
+        mujoco.mj_forward(model, data_pred)
+
+        scene.clear()
+        vx, vy, _wz = body_vel_series[frame_idx]
+        vel_local[0] = vx
+        vel_local[1] = vy
+        vel_local[2] = 0.0
+        root_body_id = scene._tracked_body_id or 1  # type: ignore[attr-defined]
+        root_pos = np.asarray(data_pred.xpos[root_body_id], dtype=np.float64)
+        root_mat = np.asarray(data_pred.xmat[root_body_id], dtype=np.float64).reshape(3, 3)
+        vel_world = root_mat @ vel_local
+        scene.add_arrow(
+            start=root_pos,
+            end=root_pos + vel_world * scene.meansize,
+            color=(0.1, 0.8, 0.1, 1.0),
+            width=0.02,
+            label="cmd_vel",
+        )
+        if show_ghost:
+            np.copyto(ghost_qpos_cache, predicted_qpos[frame_idx])
+            scene.add_ghost_mesh(
+                qpos=ghost_qpos_cache,
+                model=ghost_model,
+                alpha=0.4,
+                label="predicted",
+            )
+        scene.update_from_mjdata(data_pred)
+
+        if plotter is not None and body_features is not None:
+            terms = []
+            for name in feature_names:
+                series = body_features[name]
+                if frame_idx < len(series):
+                    terms.append((name, np.array([series[frame_idx]], dtype=np.float64)))
+            if terms:
+                plotter.update(terms)
 
     with server.gui.add_folder("Playback"):
         frame_slider = server.gui.add_slider(
@@ -90,81 +128,17 @@ def run_viser_visualization(
     def _(_) -> None:
         nonlocal show_ghost
         show_ghost = bool(ghost_checkbox.value)
+        _render_frame(current_frame)
 
     @frame_slider.on_update
     def _(_) -> None:
         nonlocal current_frame
         current_frame = int(frame_slider.value)
-        # Solid robot = recorded trajectory from NPZ
-        data_pred.qpos[:] = original_qpos[current_frame]
-        mujoco.mj_forward(model, data_pred)
-        scene.update_from_mjdata(data_pred)
+        _render_frame(current_frame)
 
-        # Visualize commanded velocity as arrow in root frame.
-        vx, vy, wz = body_vel_series[current_frame]
-        vel_local[0] = vx
-        vel_local[1] = vy
-        vel_local[2] = 0.0
-        root_body_id = scene._tracked_body_id or 1  # type: ignore[attr-defined]
-        root_pos = np.asarray(data_pred.xpos[root_body_id], dtype=np.float64)
-        root_mat = np.asarray(data_pred.xmat[root_body_id], dtype=np.float64).reshape(
-            3, 3
-        )
-        vel_world = root_mat @ vel_local
-        arrow_scale = scene.meansize
-        scene.add_arrow(
-            start=root_pos,
-            end=root_pos + vel_world * arrow_scale,
-            color=(0.1, 0.8, 0.1, 1.0),
-            width=0.02,
-            label="cmd_vel",
-        )
-
-        # Clear previous overlays and optionally add predicted pose as ghost.
-        scene.clear()
-        if show_ghost:
-            np.copyto(ghost_qpos_cache, predicted_qpos[current_frame])
-            scene.add_ghost_mesh(
-                qpos=ghost_qpos_cache,
-                model=ghost_model,
-                alpha=0.4,
-                label="predicted",
-            )
-
-        # Update plots with current body feature values (if available).
-        if plotter is not None and body_features is not None:
-            terms = []
-            for name in feature_names:
-                series = body_features[name]
-                if current_frame < len(series):
-                    terms.append((name, np.array([series[current_frame]], dtype=np.float64)))
-            if terms:
-                plotter.update(terms)
-
-    # Initialize first frame
+    _render_frame(0)
     current_frame = 0
     frame_slider.value = 0
-    data_pred.qpos[:] = original_qpos[0]
-    mujoco.mj_forward(model, data_pred)
-    scene.update_from_mjdata(data_pred)
-    scene.clear()
-    if show_ghost:
-        np.copyto(ghost_qpos_cache, predicted_qpos[0])
-        scene.add_ghost_mesh(
-            qpos=ghost_qpos_cache,
-            model=ghost_model,
-            alpha=0.4,
-            label="predicted",
-        )
-
-    if plotter is not None and body_features is not None:
-        terms = []
-        for name in feature_names:
-            vals = body_features[name]
-            if len(vals) > 0:
-                terms.append((name, np.array([vals[0]], dtype=np.float64)))
-        if terms:
-            plotter.update(terms)
 
     print("Viser server running; open the printed URL in your browser.")
 
