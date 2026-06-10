@@ -582,7 +582,7 @@ def psm_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.rewards["upright"].weight = 2.5
 
   cfg.rewards["foot_slip"].weight = -0.2
-  cfg.rewards["duty_cycle"].weight = 4.0
+  cfg.rewards["duty_cycle"].weight = 2.0
   cfg.rewards["mechanical_power"].weight = -0.0002
   cfg.rewards["upper_joints"].weight =3.
   cfg.rewards["step_width"].weight = 1.0
@@ -593,7 +593,7 @@ def psm_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     func=envs_mdp.reward_curriculum,
     params={
       "reward_name": "step_width",
-      "stages": [{"step": 0*1500 * 24, "weight": 2.0}, 
+      "stages": [{"step": 1500 * 24, "weight": 2.0}, 
                         {"step": 2000 * 24, "weight": 3.0}],
     },
   )
@@ -601,7 +601,7 @@ def psm_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     func=envs_mdp.reward_curriculum,
     params={
       "reward_name": "step_length",
-      "stages": [{"step": 0*1000 * 24, "weight": 1.0},
+      "stages": [{"step": 1000 * 24, "weight": 1.0},
                         {"step": 2500 * 24, "weight": 2.5}],
     },
   )
@@ -609,7 +609,7 @@ def psm_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     func=envs_mdp.reward_curriculum,
     params={
       "reward_name": "feet_yaw",
-      "stages": [{"step": 0*1500 * 24, "weight": 3.0}],
+      "stages": [{"step": 1500 * 24, "weight": 3.0}],
     },
   )
   cfg.curriculum["dof_acc_l2_ramp"] = CurriculumTermCfg(
@@ -617,7 +617,7 @@ def psm_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     params={
       "reward_name": "dof_acc_l2",
       "stages": [
-        {"step": 0*1000 * 24, "weight": -4e-6},
+        {"step": 1000 * 24, "weight": -4e-6},
         {"step": 3000 * 24, "weight": -6e-6},
       ],
     },
@@ -627,9 +627,9 @@ def psm_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     func=envs_mdp.reward_curriculum,
     params={
       "reward_name": "upper_joints",
-      "stages": [{"step": 0*1500 * 24, "weight": 3.0},
-                        {"step": 3000 * 24, "weight": 6.0},
-                        {"step": 4000 * 24, "weight": 9.0}],
+      "stages": [{"step": 1500 * 24, "weight": 3.0},
+                        {"step": 3000 * 24, "weight": 4.0},
+                        {"step": 4000 * 24, "weight": 6.0}],
     },
   )
   
@@ -652,21 +652,21 @@ def psm_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     func=envs_mdp.reward_curriculum,
     params={
       "reward_name": "action_rate",
-      "stages": [{"step": 0*2000 * 24, "weight": -0.15}],
+      "stages": [{"step": 2000 * 24, "weight": -0.15}],
     },
   )
   cfg.curriculum["feet_pitch"] = CurriculumTermCfg(
     func=envs_mdp.reward_curriculum,
     params={
       "reward_name": "feet_pitch",
-      "stages": [{"step": 0*1500 * 24, "weight": 2.0}],
+      "stages": [{"step": 1500 * 24, "weight": 2.0}],
     },
   )
   cfg.curriculum["feet_roll"] = CurriculumTermCfg(
     func=envs_mdp.reward_curriculum,
     params={
       "reward_name": "feet_roll",
-      "stages": [{"step": 0*1500 * 24, "weight": 1.5}],
+      "stages": [{"step": 1500 * 24, "weight": 1.5}],
     },
   )
 
