@@ -1,5 +1,6 @@
 import glob
 import pickle
+from pathlib import Path
 from typing import Tuple
 
 import numpy as np
@@ -480,6 +481,195 @@ def get_mirror_indices_scales(
     return output_indices_exp, output_signs_exp, lower_indices, lower_signs
 
 
+def _validate_psm_joint_config(
+    stored_lower: list[str],
+    stored_upper: list[str],
+    lower_joint_names: list[str],
+    upper_joint_names: list[str],
+    source: str,
+) -> None:
+    if stored_lower != lower_joint_names or stored_upper != upper_joint_names:
+        raise ValueError(
+            f"PSM NPZ joint lists in {source!r} do not match config. "
+            f"Re-run psm-csv-to-npz or psm-augment-npz with current config, or update config."
+        )
+
+
+def _psm_arrays_to_training_dict(
+    *,
+    lower_joints: np.ndarray,
+    lower_joint_vel: np.ndarray,
+    upper_joints: np.ndarray,
+    foot_pos_hist: np.ndarray,
+    foot_vel_hist: np.ndarray,
+    body_vel: np.ndarray,
+    cmd_features: np.ndarray,
+    body_features_arr: np.ndarray,
+    body_feature_names: list[str],
+    cmd_feature_names: list[str],
+    cmd_traj_horizons: tuple[int, ...],
+    cmd_traj_yaw_frame_deltas: bool,
+    motion_offsets: list[int],
+    motion_lengths: list[int],
+    upper_joint_names: list[str],
+    lower_joint_names: list[str],
+    motion_files: list[str],
+    root_height_mean: float,
+) -> dict:
+    body_features = {
+        name: body_features_arr[:, i].astype(np.float64)
+        for i, name in enumerate(body_feature_names)
+    }
+    return {
+        "lower_joints": lower_joints.astype(np.float64),
+        "lower_joint_vel": lower_joint_vel.astype(np.float64),
+        "upper_joints": upper_joints.astype(np.float64),
+        "foot_pos_hist": foot_pos_hist.astype(np.float64),
+        "foot_vel_hist": foot_vel_hist.astype(np.float64),
+        "motion_offsets": motion_offsets,
+        "motion_lengths": motion_lengths,
+        "upper_joint_names": upper_joint_names,
+        "lower_joint_names": lower_joint_names,
+        "body_features": body_features,
+        "body_feature_names": body_feature_names,
+        "body_vel": body_vel.astype(np.float64),
+        "body_vel_names": ["root_vx", "root_vy", "root_wz"],
+        "cmd_features": cmd_features.astype(np.float64),
+        "cmd_feature_names": cmd_feature_names,
+        "cmd_traj_horizons": cmd_traj_horizons,
+        "cmd_traj_yaw_frame_deltas": cmd_traj_yaw_frame_deltas,
+        "motion_files": motion_files,
+        "root_height_mean": root_height_mean,
+    }
+
+
+def _load_psm_training_bundle(
+    bundle_path: str,
+    *,
+    upper_joint_names: list[str],
+    lower_joint_names: list[str],
+) -> dict:
+    from psm.predictor.npz_schema import bundle_has_psm_training
+
+    data = np.load(bundle_path, allow_pickle=True)
+    if not bundle_has_psm_training(data):
+        raise ValueError(f"{bundle_path} is not a PSM training bundle")
+
+    stored_lower = [str(x) for x in data["psm_lower_joint_names"].tolist()]
+    stored_upper = [str(x) for x in data["psm_upper_joint_names"].tolist()]
+    _validate_psm_joint_config(
+        stored_lower, stored_upper, lower_joint_names, upper_joint_names, bundle_path
+    )
+
+    body_feature_names = [str(x) for x in data["psm_body_feature_names"].tolist()]
+    cmd_feature_names = [str(x) for x in data["psm_cmd_feature_names"].tolist()]
+    horizons = tuple(int(x) for x in np.asarray(data["psm_cmd_traj_horizons"]).tolist())
+    yaw_deltas = bool(int(np.asarray(data["psm_cmd_traj_yaw_frame_deltas"]).reshape(-1)[0]))
+
+    root_h = float(np.mean(data["psm_body_features"][:, body_feature_names.index("root_height")]))
+    sources = [str(x) for x in data["segment_source"].tolist()]
+
+    return _psm_arrays_to_training_dict(
+        lower_joints=data["psm_lower_joints"],
+        lower_joint_vel=data["psm_lower_joint_vel"],
+        upper_joints=data["psm_upper_joints"],
+        foot_pos_hist=data["psm_foot_pos_hist"],
+        foot_vel_hist=data["psm_foot_vel_hist"],
+        body_vel=data["psm_body_vel"],
+        cmd_features=data["psm_cmd_features"],
+        body_features_arr=data["psm_body_features"],
+        body_feature_names=body_feature_names,
+        cmd_feature_names=cmd_feature_names,
+        cmd_traj_horizons=horizons,
+        cmd_traj_yaw_frame_deltas=yaw_deltas,
+        motion_offsets=[int(x) for x in data["segment_start_idx"].tolist()],
+        motion_lengths=[int(x) for x in data["segment_length"].tolist()],
+        upper_joint_names=upper_joint_names,
+        lower_joint_names=lower_joint_names,
+        motion_files=sources,
+        root_height_mean=root_h,
+    )
+
+
+def _load_psm_clips_precomputed(
+    motion_files: list[str],
+    *,
+    upper_joint_names: list[str],
+    lower_joint_names: list[str],
+) -> dict:
+    from psm.predictor.npz_schema import clip_has_psm_training
+
+    parts: dict[str, list[np.ndarray]] = {
+        "psm_lower_joints": [],
+        "psm_lower_joint_vel": [],
+        "psm_upper_joints": [],
+        "psm_foot_pos_hist": [],
+        "psm_foot_vel_hist": [],
+        "psm_body_vel": [],
+        "psm_cmd_features": [],
+        "psm_body_features": [],
+    }
+    motion_offsets: list[int] = []
+    motion_lengths: list[int] = []
+    offset = 0
+    meta: dict | None = None
+    root_heights: list[np.ndarray] = []
+
+    for path in motion_files:
+        data = np.load(path, allow_pickle=True)
+        if not clip_has_psm_training(data):
+            raise ValueError(f"{path} lacks PSM keys; run psm-augment-npz first")
+        if meta is None:
+            meta = {
+                "body_feature_names": [str(x) for x in data["psm_body_feature_names"].tolist()],
+                "cmd_feature_names": [str(x) for x in data["psm_cmd_feature_names"].tolist()],
+                "horizons": tuple(int(x) for x in np.asarray(data["psm_cmd_traj_horizons"]).tolist()),
+                "yaw_deltas": bool(
+                    int(np.asarray(data["psm_cmd_traj_yaw_frame_deltas"]).reshape(-1)[0])
+                ),
+                "stored_lower": [str(x) for x in data["psm_lower_joint_names"].tolist()],
+                "stored_upper": [str(x) for x in data["psm_upper_joint_names"].tolist()],
+            }
+            _validate_psm_joint_config(
+                meta["stored_lower"],
+                meta["stored_upper"],
+                lower_joint_names,
+                upper_joint_names,
+                path,
+            )
+        length = int(data["psm_lower_joints"].shape[0])
+        motion_offsets.append(offset)
+        motion_lengths.append(length)
+        offset += length
+        for key in parts:
+            parts[key].append(np.asarray(data[key]))
+        rh_idx = meta["body_feature_names"].index("root_height")
+        root_heights.append(np.asarray(data["psm_body_features"][:, rh_idx], dtype=np.float64))
+
+    assert meta is not None
+    body_features_arr = np.concatenate(parts["psm_body_features"], axis=0)
+    return _psm_arrays_to_training_dict(
+        lower_joints=np.concatenate(parts["psm_lower_joints"], axis=0),
+        lower_joint_vel=np.concatenate(parts["psm_lower_joint_vel"], axis=0),
+        upper_joints=np.concatenate(parts["psm_upper_joints"], axis=0),
+        foot_pos_hist=np.concatenate(parts["psm_foot_pos_hist"], axis=0),
+        foot_vel_hist=np.concatenate(parts["psm_foot_vel_hist"], axis=0),
+        body_vel=np.concatenate(parts["psm_body_vel"], axis=0),
+        cmd_features=np.concatenate(parts["psm_cmd_features"], axis=0),
+        body_features_arr=body_features_arr,
+        body_feature_names=meta["body_feature_names"],
+        cmd_feature_names=meta["cmd_feature_names"],
+        cmd_traj_horizons=meta["horizons"],
+        cmd_traj_yaw_frame_deltas=meta["yaw_deltas"],
+        motion_offsets=motion_offsets,
+        motion_lengths=motion_lengths,
+        upper_joint_names=upper_joint_names,
+        lower_joint_names=lower_joint_names,
+        motion_files=motion_files,
+        root_height_mean=float(np.mean(np.concatenate(root_heights))),
+    )
+
+
 def load_motion_data_npz(
     motion_files_pattern: str,
     *,
@@ -500,221 +690,133 @@ def load_motion_data_npz(
     Minimum NPZ keys (compact export):
     - joint_names, joint_pos, body_pos_w, body_quat_w, body_lin_vel_w, body_ang_vel_w
     - optional: joint_vel, fps, robot
-    """
-    from .npz_schema import expand_motion_npz
 
-    motion_files = glob.glob(motion_files_pattern)
+    Fast path: merged ``motions.npz`` or per-clip files with ``psm_*`` keys (from
+    ``psm-csv-to-npz`` / ``psm-augment-npz`` + ``psm-stack-motions``).
+    """
+    from psm.predictor.features import compute_predictor_features_from_config
+    from psm.predictor.npz_schema import (
+        bundle_has_psm_training,
+        clip_has_psm_training,
+        expand_motion_npz,
+    )
+
+    motion_files = sorted(glob.glob(motion_files_pattern))
+    if motion_files_pattern.endswith(".npz") and not motion_files:
+        # Explicit single-file path (not a glob).
+        candidate = motion_files_pattern
+        if Path(candidate).is_file():
+            motion_files = [candidate]
+
     if not lower_joint_names:
         raise ValueError("lower_joint_names must be non-empty.")
     if not motion_files:
         raise FileNotFoundError(f"No motion files matched pattern: {motion_files_pattern!r}")
 
-    current_offset = 0
-    motion_offsets = []
-    motion_lengths = []
-    lower_joints = []
-    lower_joint_vel_list: list[np.ndarray] = []
-    foot_pos_hist_list: list[np.ndarray] = []
-    foot_vel_hist_list: list[np.ndarray] = []
-    upper_joints = []
-    body_vel_root_list: list[np.ndarray] = []
-    cmd_features_list: list[np.ndarray] = []
-    body_features: dict[str, list[np.ndarray]] = {}
-
-    # First pass: dataset-wide root-height statistics.
-    all_root_heights = []
-    for motion_path in motion_files:
-        npz = np.load(motion_path, allow_pickle=True)
-        try:
-            motion = expand_motion_npz(
-                npz,
-                body_names=body_names,
-                root_body_name=root_body_name,
+    if len(motion_files) == 1:
+        npz = np.load(motion_files[0], allow_pickle=True)
+        is_bundle = bundle_has_psm_training(npz)
+        npz.close()
+        if is_bundle:
+            print(f"[INFO] Fast load: PSM training bundle {motion_files[0]}")
+            return _load_psm_training_bundle(
+                motion_files[0],
+                upper_joint_names=upper_joint_names,
+                lower_joint_names=lower_joint_names,
             )
-        finally:
-            npz.close()
-        all_root_heights.append(np.asarray(motion["qpos"], dtype=np.float64)[:, 2])
-    all_root_h = np.concatenate(all_root_heights)
-    mean_height = float(np.mean(all_root_h))
 
-    for motion_path in motion_files:
-        npz = np.load(motion_path, allow_pickle=True)
-        try:
-            motion = expand_motion_npz(
-                npz,
-                body_names=body_names,
-                root_body_name=root_body_name,
-            )
-        finally:
-            npz.close()
-
-        joint_names = list(motion["joint_names"])
-        joint_pos = np.asarray(motion["joint_pos"], dtype=np.float64)
-        qpos = np.asarray(motion["qpos"], dtype=np.float64)
-        qvel = np.asarray(motion["qvel"], dtype=np.float64)
-
-        body_names_list = list(motion["body_names"])
-        body_pos_w = np.asarray(motion["body_pos_w"], dtype=np.float64)
-        body_quat_w = np.asarray(motion["body_quat_w"], dtype=np.float64)
-        body_pos_r = np.asarray(motion["body_pos_r"], dtype=np.float64)
-        body_quat_r = np.asarray(motion["body_quat_r"], dtype=np.float64)
-
-        upper_indices = [joint_names.index(name) for name in upper_joint_names]
-        lower_indices = [joint_names.index(name) for name in lower_joint_names]
-
-        n_samples = joint_pos.shape[0]
-        motion_offsets.append(current_offset)
-        motion_lengths.append(n_samples)
-        current_offset += n_samples
-
-        lower_joints.append(joint_pos[:, lower_indices])
-        upper_joints.append(joint_pos[:, upper_indices])
-
-        joint_vel = np.asarray(motion["joint_vel"], dtype=np.float64)
-        lower_joint_vel_list.append(joint_vel[:, lower_indices])
-
-        # --- Root kinematics (from npz schema) ---
-        root_pos = qpos[:, 0:3]
-        root_quat = qpos[:, 3:7]  # wxyz
-
-        # Predictor velocity inputs: body-frame root_vx/root_vy/root_wz (loco_gen-style).
-        root_vx, root_vy, root_wz = compute_body_vel_from_qpos_qvel(qpos, qvel)
-        body_vel_root = np.stack([root_vx, root_vy, root_wz], axis=1)
-        body_vel_root_list.append(body_vel_root)
-        traj_features = compute_trajectory_features(
-            qpos,
-            horizons_frames=cmd_traj_horizons,
-            traj_yaw_frame_deltas=cmd_traj_yaw_frame_deltas,
+    sample = np.load(motion_files[0], allow_pickle=True)
+    try:
+        all_precomputed = clip_has_psm_training(sample)
+    finally:
+        sample.close()
+    if all_precomputed:
+        for path in motion_files[1:]:
+            check = np.load(path, allow_pickle=True)
+            try:
+                if not clip_has_psm_training(check):
+                    all_precomputed = False
+                    break
+            finally:
+                check.close()
+    if all_precomputed:
+        print(f"[INFO] Fast load: {len(motion_files)} precomputed PSM clip(s)")
+        return _load_psm_clips_precomputed(
+            motion_files,
+            upper_joint_names=upper_joint_names,
+            lower_joint_names=lower_joint_names,
         )
-        # Command-like conditioning: instantaneous [root_vx,root_vy,root_wz] + trajectory descriptor.
-        cmd_features_list.append(np.concatenate([body_vel_root, traj_features], axis=1))
 
-        # --- Body features ---
-        motion_body_features: dict[str, np.ndarray] = {}
+    print("[INFO] Slow load: computing features from kinematics (consider psm-augment-npz)")
 
-        # Pelvis/root orientation features.
-        pelvis_roll, pelvis_pitch, _ = quaternions_to_rpy(root_quat)
-        motion_body_features["pelvis_roll"] = pelvis_roll
-        motion_body_features["pelvis_pitch"] = pelvis_pitch
-
-        # Future velocities as prediction targets (same timestep indexing as other features)
-        # We no longer predict future velocities; only store commanded velocities as inputs.
-
-        # Foot features: use configured foot bodies, but expose canonical names left_foot/right_foot
-        left_body, right_body = feet_bodies
-        try:
-            left_idx = body_names_list.index(left_body)
-            right_idx = body_names_list.index(right_body)
-        except ValueError as e:
-            raise KeyError(
-                f"Foot body not found in body_names for {motion_path!r}. "
-                f"Expected {feet_bodies}. Available (first 20): {body_names_list[:20]}"
-            ) from e
-        torso_idx = (
-            body_names_list.index("torso_link") if "torso_link" in body_names_list else None
-        )
-        if torso_idx is not None:
-            torso_quat_w = body_quat_w[:, torso_idx, :]
-            torso_roll, torso_pitch, _ = quaternions_to_rpy(torso_quat_w)
-            motion_body_features["torso_roll"] = torso_roll
-            motion_body_features["torso_pitch"] = torso_pitch
-
-        # Step metrics from root-relative foot positions:
-        # - In root frame, X distance is step length, Y distance is step width.
-        left_pos_r = body_pos_r[:, left_idx, :]
-        right_pos_r = body_pos_r[:, right_idx, :]
-        left_pos_w = body_pos_w[:, left_idx, :]
-        right_pos_w = body_pos_w[:, right_idx, :]
-        fp = np.concatenate([left_pos_r, right_pos_r], axis=1)
-        foot_pos_hist_list.append(fp)
-        fps_foot = float(motion["fps"])
-        foot_vel_hist_list.append(_finite_diff_velocity_np(fp, fps_foot))
-
-        # Foot orientation features from root-relative quaternions.
-        _, left_pitch, left_rel_yaw = quaternions_to_rpy(body_quat_r[:, left_idx, :])
-        _, right_pitch, right_rel_yaw = quaternions_to_rpy(body_quat_r[:, right_idx, :])
-        motion_body_features["left_foot_pitch"] = left_pitch
-        motion_body_features["right_foot_pitch"] = right_pitch
-        motion_body_features["left_foot_rel_yaw"] = left_rel_yaw
-        motion_body_features["right_foot_rel_yaw"] = right_rel_yaw
-
-        step_length_raw = np.abs(right_pos_r[:, 0] - left_pos_r[:, 0])
-        step_width_raw = np.abs(right_pos_r[:, 1] - left_pos_r[:, 1])
-
-        # Symmetry-friendly gait timing features.
-        fps = float(motion["fps"])
-        dt = 1.0 / max(fps, 1e-6)
-        left_contact = _estimate_foot_contact_from_kinematics(left_pos_r, dt)
-        right_contact = _estimate_foot_contact_from_kinematics(right_pos_r, dt)
-        cadence_hz, double_support_factor = _compute_cadence_and_double_support(
-            left_contact, right_contact, dt=dt, window=25
-        )
-        # Peak-interpolated gait metrics.
-        x_full = np.arange(n_samples, dtype=np.float64)
-        peaks, _ = find_peaks(step_length_raw, distance=10)
-        if peaks.size < 2:
-            peaks = np.array([0, n_samples - 1], dtype=np.int64)
-        step_length_interp = np.interp(x_full, peaks, step_length_raw[peaks])
-        step_width_interp = np.interp(x_full, peaks, step_width_raw[peaks])
-        motion_body_features["step_length"] = _smooth_series(step_length_interp, window=31, poly=2)
-        motion_body_features["step_width"] = _smooth_series(step_width_interp, window=31, poly=2)
-        motion_body_features["cadence_hz"] = _smooth_series(cadence_hz, window=31, poly=2)
-        motion_body_features["double_support_factor"] = _smooth_series(double_support_factor, window=31, poly=2)
-        # Root height target (world-frame Z).
-        motion_body_features["root_height"] = root_pos[:, 2]
-
-        # Final denoising + physical clamping before appending.
-        motion_body_features = _postprocess_body_features(motion_body_features)
-
-        for k, v in motion_body_features.items():
-            body_features.setdefault(k, []).append(np.asarray(v, dtype=np.float64))
-
-    lower_joints = np.concatenate(lower_joints, axis=0)
-    lower_joint_vel = np.concatenate(lower_joint_vel_list, axis=0)
-    foot_pos_hist = np.concatenate(foot_pos_hist_list, axis=0)
-    foot_vel_hist = np.concatenate(foot_vel_hist_list, axis=0)
-    upper_joints = np.concatenate(upper_joints, axis=0)
-    body_vel_root = np.concatenate(body_vel_root_list, axis=0)
-    cmd_features = np.concatenate(cmd_features_list, axis=0)
-    body_features_concat = {k: np.concatenate(v, axis=0) for k, v in body_features.items()}
-    cmd_feature_names = ["root_vx", "root_vy", "root_wz"]
-    for h in cmd_traj_horizons:
-        cmd_feature_names.extend(
-            [
-                f"traj_pos_{h}_x",
-                f"traj_pos_{h}_y",
-                f"traj_dir_{h}_x",
-                f"traj_dir_{h}_y",
-            ]
-        )
-        if cmd_traj_yaw_frame_deltas:
-            for i in range(int(h)):
-                cmd_feature_names.append(f"traj_{h}_dyaw_{i}")
-        else:
-            cmd_feature_names.append(f"traj_{h}_yaw")
-
-    return {
-        "lower_joints": lower_joints,
-        "lower_joint_vel": lower_joint_vel,
-        "upper_joints": upper_joints,
-        "foot_pos_hist": foot_pos_hist,
-        "foot_vel_hist": foot_vel_hist,
-        "motion_offsets": motion_offsets,
-        "motion_lengths": motion_lengths,
-        "upper_joint_names": upper_joint_names,
-        "lower_joint_names": lower_joint_names,
-        "body_features": body_features_concat,
-        "body_feature_names": list(body_features_concat.keys()),
-        # Per-timestep [root_vx, root_vy, root_wz] in root body frame.
-        "body_vel": body_vel_root,
-        "body_vel_names": ["root_vx", "root_vy", "root_wz"],
-        "cmd_features": cmd_features,
-        "cmd_feature_names": cmd_feature_names,
-        "cmd_traj_horizons": tuple(int(h) for h in cmd_traj_horizons),
-        "cmd_traj_yaw_frame_deltas": bool(cmd_traj_yaw_frame_deltas),
-        "motion_files": motion_files,
-        "root_height_mean": mean_height,
+    parts: dict[str, list[np.ndarray]] = {
+        "psm_lower_joints": [],
+        "psm_lower_joint_vel": [],
+        "psm_upper_joints": [],
+        "psm_foot_pos_hist": [],
+        "psm_foot_vel_hist": [],
+        "psm_body_vel": [],
+        "psm_cmd_features": [],
+        "psm_body_features": [],
     }
+    motion_offsets: list[int] = []
+    motion_lengths: list[int] = []
+    offset = 0
+    meta: dict | None = None
+    root_heights: list[np.ndarray] = []
+
+    for motion_path in motion_files:
+        npz = np.load(motion_path, allow_pickle=True)
+        try:
+            motion = expand_motion_npz(
+                npz,
+                body_names=body_names,
+                root_body_name=root_body_name,
+            )
+        finally:
+            npz.close()
+
+        psm = compute_predictor_features_from_config(motion)
+        if meta is None:
+            meta = {
+                "body_feature_names": list(psm["psm_body_feature_names"]),
+                "cmd_feature_names": list(psm["psm_cmd_feature_names"]),
+                "horizons": tuple(int(x) for x in np.asarray(psm["psm_cmd_traj_horizons"]).tolist()),
+                "yaw_deltas": bool(
+                    int(np.asarray(psm["psm_cmd_traj_yaw_frame_deltas"]).reshape(-1)[0])
+                ),
+            }
+        length = int(psm["psm_lower_joints"].shape[0])
+        motion_offsets.append(offset)
+        motion_lengths.append(length)
+        offset += length
+        for key in parts:
+            parts[key].append(np.asarray(psm[key]))
+        rh_idx = meta["body_feature_names"].index("root_height")
+        root_heights.append(np.asarray(psm["psm_body_features"][:, rh_idx], dtype=np.float64))
+
+    assert meta is not None
+    body_features_arr = np.concatenate(parts["psm_body_features"], axis=0)
+    return _psm_arrays_to_training_dict(
+        lower_joints=np.concatenate(parts["psm_lower_joints"], axis=0),
+        lower_joint_vel=np.concatenate(parts["psm_lower_joint_vel"], axis=0),
+        upper_joints=np.concatenate(parts["psm_upper_joints"], axis=0),
+        foot_pos_hist=np.concatenate(parts["psm_foot_pos_hist"], axis=0),
+        foot_vel_hist=np.concatenate(parts["psm_foot_vel_hist"], axis=0),
+        body_vel=np.concatenate(parts["psm_body_vel"], axis=0),
+        cmd_features=np.concatenate(parts["psm_cmd_features"], axis=0),
+        body_features_arr=body_features_arr,
+        body_feature_names=meta["body_feature_names"],
+        cmd_feature_names=meta["cmd_feature_names"],
+        cmd_traj_horizons=meta["horizons"],
+        cmd_traj_yaw_frame_deltas=meta["yaw_deltas"],
+        motion_offsets=motion_offsets,
+        motion_lengths=motion_lengths,
+        upper_joint_names=upper_joint_names,
+        lower_joint_names=lower_joint_names,
+        motion_files=motion_files,
+        root_height_mean=float(np.mean(np.concatenate(root_heights))),
+    )
 
 
 def prepare_training_data(

@@ -29,6 +29,11 @@ uv sync
 **Predictor (offline)**
 
 ```bash
+# Prepare motion data (once per dataset; see data/README.md)
+uv run psm-csv-to-npz --dataset motions --robot g1   # CSV → extended NPZ
+uv run psm-augment-npz --input-path data/motions     # or upgrade existing NPZ
+uv run psm-stack-motions --dataset-path data/motions # → data/motions/motions.npz
+
 uv run psm-predictor-train
 uv run psm-predictor-play --npz data/motions/your_clip.npz
 ```
@@ -62,6 +67,7 @@ Policy logs: `logs/rsl_rl/g1_psm/` (each run snapshots the active predictor unde
 ├── data/
 ├── src/psm/
 │   ├── predictor/      # training; logs → logs/predictor/; weights/ = packaged fallback
+│   ├── motion/         # psm-csv-to-npz, psm-augment-npz, psm-stack-motions
 │   ├── scripts/        # psm-env-train, psm-env-play, utilities
 │   └── env/            # RL (Psm-G1): cfg/, mdp/, runner.py, utils/ (deploy, symmetry, predictor path/log)
 └── docs/               # GitHub Pages project site (not Python)

@@ -1,8 +1,4 @@
-"""Normalize motion NPZ files for PSM predictor training.
-
-Supports both the full schema (``qpos``, ``body_pos_r``, …) and the compact
-per-clip export (``joint_pos``, ``body_*_w`` only).
-"""
+"""Motion NPZ schema: compact kinematics, extended PSM training arrays, stacking."""
 
 from __future__ import annotations
 
@@ -13,8 +9,20 @@ from typing import Any, Sequence
 import mujoco
 import numpy as np
 
+PSM_SCHEMA_VERSION = 1
+ROOT_BODY_NAME = "pelvis"
+BUNDLE_FILENAME = "motions.npz"
 
-def _body_pose_vel_in_root_frame(
+
+def clip_has_psm_training(npz: np.lib.npyio.NpzFile) -> bool:
+    return "psm_lower_joints" in npz.files and "psm_body_features" in npz.files
+
+
+def bundle_has_psm_training(npz: np.lib.npyio.NpzFile) -> bool:
+    return clip_has_psm_training(npz) and "segment_start_idx" in npz.files
+
+
+def body_pose_vel_in_root_frame(
     root_pos: np.ndarray,
     root_quat: np.ndarray,
     root_lin_vel: np.ndarray,
@@ -43,15 +51,6 @@ def _body_pose_vel_in_root_frame(
     return pos_r, quat_r, lin_vel_r, ang_vel_r
 
 
-def _npz_scalar_str(npz: np.lib.npyio.NpzFile, key: str, default: str) -> str:
-    if key not in npz.files:
-        return default
-    arr = np.asarray(npz[key], dtype=object).reshape(-1)
-    if arr.size == 0:
-        return default
-    return str(arr[0])
-
-
 def _npz_fps(npz: np.lib.npyio.NpzFile, default: float = 50.0) -> float:
     if "fps" not in npz.files:
         return default
@@ -60,7 +59,7 @@ def _npz_fps(npz: np.lib.npyio.NpzFile, default: float = 50.0) -> float:
 
 
 @lru_cache(maxsize=1)
-def default_g1_body_names() -> tuple[str, ...]:
+def g1_body_names() -> tuple[str, ...]:
     from mjlab.entity import Entity
 
     from psm.assets.unitree_g1.g1_constants import get_g1_robot_cfg
@@ -70,19 +69,13 @@ def default_g1_body_names() -> tuple[str, ...]:
 
 def resolve_body_names(
     npz: np.lib.npyio.NpzFile,
-    body_names: Sequence[str] | None,
+    body_names: Sequence[str] | None = None,
 ) -> list[str]:
     if body_names is not None:
         return list(body_names)
     if "body_names" in npz.files:
         return [str(x) for x in npz["body_names"].tolist()]
-    robot = _npz_scalar_str(npz, "robot", "g1").strip().lower()
-    if robot in ("g1", "unitree_g1", "unitree_g1_with_hands"):
-        return list(default_g1_body_names())
-    raise ValueError(
-        f"NPZ has no body_names and robot={robot!r} is unknown. "
-        "Pass body_names= to load_motion_data_npz."
-    )
+    return list(g1_body_names())
 
 
 def needs_schema_expansion(npz: np.lib.npyio.NpzFile) -> bool:
@@ -94,7 +87,7 @@ def expand_motion_npz(
     npz: np.lib.npyio.NpzFile,
     *,
     body_names: Sequence[str] | None = None,
-    root_body_name: str = "pelvis",
+    root_body_name: str = ROOT_BODY_NAME,
 ) -> dict[str, Any]:
     """Return a dict with the full predictor schema, expanding compact NPZ if needed."""
     names = resolve_body_names(npz, body_names)
@@ -161,7 +154,7 @@ def expand_motion_npz(
     body_lin_vel_r = np.empty_like(body_lin_vel_w)
     body_ang_vel_r = np.empty_like(body_ang_vel_w)
     for t in range(n_frames):
-        pos_r, quat_r, lin_r, ang_r = _body_pose_vel_in_root_frame(
+        pos_r, quat_r, lin_r, ang_r = body_pose_vel_in_root_frame(
             root_pos[t],
             root_quat[t],
             root_lin_vel[t],
@@ -187,7 +180,7 @@ def load_expanded_motion_npz(
     path: str | Path,
     *,
     body_names: Sequence[str] | None = None,
-    root_body_name: str = "pelvis",
+    root_body_name: str = ROOT_BODY_NAME,
 ) -> dict[str, Any]:
     npz = np.load(path, allow_pickle=True)
     try:
@@ -208,3 +201,236 @@ def _finite_diff_joint_vel(joint_pos: np.ndarray, fps: float) -> np.ndarray:
     if joint_pos.shape[0] > 2:
         v[1:-1] = (joint_pos[2:] - joint_pos[:-2]) / (2.0 * dt)
     return v
+
+
+# --- paths (G1 / data/motions layout) ---
+
+
+def repo_root() -> Path:
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "pyproject.toml").is_file():
+            return parent
+    raise RuntimeError("Could not locate repo root (pyproject.toml)")
+
+
+def motions_dir() -> Path:
+    return repo_root() / "data" / "motions"
+
+
+def training_bundle_path(dataset_root: Path | None = None) -> Path:
+    root = (dataset_root or motions_dir()).resolve()
+    return root / BUNDLE_FILENAME
+
+
+def list_clip_npz_files(dataset_root: Path) -> list[Path]:
+    return sorted(
+        p for p in dataset_root.resolve().glob("*.npz") if p.is_file() and p.name != BUNDLE_FILENAME
+    )
+
+
+def resolve_conversion_paths(
+    *,
+    dataset: str | None = None,
+    dataset_path: str | None = None,
+    input_path: str | None = None,
+    output_dir: str | None = None,
+) -> tuple[str, str]:
+    if dataset_path is not None and dataset is not None:
+        raise ValueError("Use only one of --dataset or --dataset-path")
+
+    if dataset_path is not None:
+        root = Path(dataset_path).expanduser()
+        root = (Path.cwd() / root).resolve() if not root.is_absolute() else root.resolve()
+        if not root.is_dir():
+            raise FileNotFoundError(f"Dataset path does not exist: {root}")
+        out = str(output_dir or root)
+        raw = root / "raw"
+        inp = str(input_path or (raw if raw.is_dir() else root))
+        return inp, out
+
+    if dataset is not None:
+        root = motions_dir() if dataset == "motions" else repo_root() / "data" / dataset
+        out = str(output_dir or root)
+        raw = root / "raw"
+        inp = str(input_path or (raw if raw.is_dir() else root))
+        return inp, out
+
+    if input_path is None or output_dir is None:
+        raise ValueError("Provide --dataset, --dataset-path, or --input-path and --output-dir")
+    return input_path, output_dir
+
+
+# --- extended clip I/O ---
+
+
+def save_extended_clip_npz(
+    *,
+    output_path: Path,
+    log: dict[str, Any],
+    psm: dict[str, Any],
+    joint_names: list[str],
+    body_names: list[str],
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, Any] = {
+        "fps": np.asarray(log["fps"], dtype=np.float32),
+        "joint_names": np.asarray(joint_names, dtype=object),
+        "body_names": np.asarray(body_names, dtype=object),
+        "robot": np.asarray("g1", dtype=object),
+        "joint_pos": np.asarray(log["joint_pos"], dtype=np.float32),
+        "joint_vel": np.asarray(log["joint_vel"], dtype=np.float32),
+        "qpos": np.asarray(log["qpos"], dtype=np.float32),
+        "qvel": np.asarray(log["qvel"], dtype=np.float32),
+        "body_pos_w": np.asarray(log["body_pos_w"], dtype=np.float32),
+        "body_quat_w": np.asarray(log["body_quat_w"], dtype=np.float32),
+        "body_lin_vel_w": np.asarray(log["body_lin_vel_w"], dtype=np.float32),
+        "body_ang_vel_w": np.asarray(log["body_ang_vel_w"], dtype=np.float32),
+        "body_pos_r": np.asarray(log["body_pos_r"], dtype=np.float32),
+        "body_quat_r": np.asarray(log["body_quat_r"], dtype=np.float32),
+        "body_lin_vel_r": np.asarray(log["body_lin_vel_r"], dtype=np.float32),
+        "body_ang_vel_r": np.asarray(log["body_ang_vel_r"], dtype=np.float32),
+        "psm_schema_version": np.asarray([PSM_SCHEMA_VERSION], dtype=np.int64),
+        "psm_lower_joints": np.asarray(psm["psm_lower_joints"], dtype=np.float32),
+        "psm_lower_joint_vel": np.asarray(psm["psm_lower_joint_vel"], dtype=np.float32),
+        "psm_upper_joints": np.asarray(psm["psm_upper_joints"], dtype=np.float32),
+        "psm_foot_pos_hist": np.asarray(psm["psm_foot_pos_hist"], dtype=np.float32),
+        "psm_foot_vel_hist": np.asarray(psm["psm_foot_vel_hist"], dtype=np.float32),
+        "psm_body_vel": np.asarray(psm["psm_body_vel"], dtype=np.float32),
+        "psm_cmd_features": np.asarray(psm["psm_cmd_features"], dtype=np.float32),
+        "psm_body_features": np.asarray(psm["psm_body_features"], dtype=np.float32),
+        "psm_lower_joint_names": np.asarray(psm["psm_lower_joint_names"], dtype=object),
+        "psm_upper_joint_names": np.asarray(psm["psm_upper_joint_names"], dtype=object),
+        "psm_body_feature_names": np.asarray(psm["psm_body_feature_names"], dtype=object),
+        "psm_cmd_feature_names": np.asarray(psm["psm_cmd_feature_names"], dtype=object),
+        "psm_cmd_traj_horizons": np.asarray(psm["psm_cmd_traj_horizons"], dtype=np.int64),
+        "psm_cmd_traj_yaw_frame_deltas": np.asarray(
+            psm["psm_cmd_traj_yaw_frame_deltas"], dtype=np.int64
+        ),
+    }
+    np.savez(output_path, **payload)
+
+
+def export_extended_clip(
+    *,
+    output_dir: str | Path,
+    source_path: Path,
+    log: dict[str, Any],
+    psm: dict[str, Any],
+    joint_names: list[str],
+    body_names: list[str],
+) -> Path:
+    out = Path(output_dir).expanduser().resolve() / f"{source_path.stem}.npz"
+    save_extended_clip_npz(
+        output_path=out,
+        log=log,
+        psm=psm,
+        joint_names=joint_names,
+        body_names=body_names,
+    )
+    print(f"[INFO] Exported clip: {out}")
+    return out
+
+
+def write_extended_clip_from_log(
+    *,
+    output_dir: str | Path,
+    source_path: Path,
+    log: dict[str, Any],
+    joint_names: list[str],
+    body_names: list[str],
+    fps: float,
+) -> Path:
+    """Compute PSM features from a FK log and write extended NPZ."""
+    from psm.predictor.features import compute_predictor_features_from_config
+
+    log = {**log, "fps": [fps]}
+    motion = {
+        "joint_names": joint_names,
+        "body_names": body_names,
+        "joint_pos": log["joint_pos"],
+        "joint_vel": log["joint_vel"],
+        "qpos": log["qpos"],
+        "qvel": log["qvel"],
+        "body_pos_w": log["body_pos_w"],
+        "body_quat_w": log["body_quat_w"],
+        "body_pos_r": log["body_pos_r"],
+        "body_quat_r": log["body_quat_r"],
+        "fps": fps,
+    }
+    psm = compute_predictor_features_from_config(motion)
+    return export_extended_clip(
+        output_dir=output_dir,
+        source_path=source_path,
+        log=log,
+        psm=psm,
+        joint_names=joint_names,
+        body_names=body_names,
+    )
+
+
+def stack_training_bundle(*, clips: list[Path], output_path: Path) -> Path:
+    """Concatenate extended clip NPZs into one training bundle."""
+    from tqdm import tqdm
+
+    if not clips:
+        raise ValueError("No clips to stack")
+
+    merged: dict[str, list[np.ndarray]] = {
+        k: []
+        for k in (
+            "psm_lower_joints",
+            "psm_lower_joint_vel",
+            "psm_upper_joints",
+            "psm_foot_pos_hist",
+            "psm_foot_vel_hist",
+            "psm_body_vel",
+            "psm_cmd_features",
+            "psm_body_features",
+        )
+    }
+    segment_start_idx: list[int] = []
+    segment_length: list[int] = []
+    segment_source: list[str] = []
+    running = 0
+    meta: dict[str, Any] = {}
+
+    for path in tqdm(clips, desc="Stack clips"):
+        data = np.load(path, allow_pickle=True)
+        if not clip_has_psm_training(data):
+            raise ValueError(f"{path} lacks PSM keys; run psm-augment-npz or psm-csv-to-npz first")
+        length = int(data["psm_lower_joints"].shape[0])
+        for key in merged:
+            merged[key].append(np.asarray(data[key], dtype=np.float32))
+        segment_start_idx.append(running)
+        segment_length.append(length)
+        segment_source.append(str(path.resolve()))
+        running += length
+        if not meta:
+            meta = {
+                "joint_names": data["joint_names"],
+                "body_names": data.get("body_names"),
+                "robot": data.get("robot", np.asarray("g1", dtype=object)),
+                "fps": data["fps"],
+                "psm_lower_joint_names": data["psm_lower_joint_names"],
+                "psm_upper_joint_names": data["psm_upper_joint_names"],
+                "psm_body_feature_names": data["psm_body_feature_names"],
+                "psm_cmd_feature_names": data["psm_cmd_feature_names"],
+                "psm_cmd_traj_horizons": data["psm_cmd_traj_horizons"],
+                "psm_cmd_traj_yaw_frame_deltas": data["psm_cmd_traj_yaw_frame_deltas"],
+            }
+
+    payload: dict[str, Any] = {
+        "psm_schema_version": np.asarray([PSM_SCHEMA_VERSION], dtype=np.int64),
+        "segment_start_idx": np.asarray(segment_start_idx, dtype=np.int64),
+        "segment_length": np.asarray(segment_length, dtype=np.int64),
+        "segment_source": np.asarray(segment_source, dtype=object),
+        **meta,
+    }
+    for key, parts in merged.items():
+        payload[key] = np.concatenate(parts, axis=0)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(output_path, **payload)
+    print(f"[INFO] Wrote training bundle: {output_path} ({len(clips)} clips, {running} frames)")
+    return output_path
