@@ -46,7 +46,7 @@ class SymmetryCfg:
   use_data_augmentation: bool = True
   """Disabled by default to match Unitree velocity baseline behaviour."""
 
-  use_mirror_loss: bool = False
+  use_mirror_loss: bool = True
   """If True, adds symmetry MSE on mean actions vs mirrored actions (rsl_rl mirror path)."""
 
   data_augmentation_func: Callable = compute_symmetric_states

@@ -29,6 +29,10 @@ psm-predictor-play = "psm.predictor.play:main"
 psm-env-train = "psm.scripts.train:main"
 psm-env-play = "psm.scripts.play:main"
 psm-list-envs = "psm.scripts.list_envs:main"
+psm-data-to-npz = "psm.motion.data_to_npz:cli"
+psm-augment-npz = "psm.motion.augment_npz:cli"
+psm-stack-motions = "psm.motion.stack_motions:cli"
+psm-vis-npz = "psm.scripts.visualize_dataset:cli"
 
 [project.entry-points."mjlab.tasks"]
 psm = "psm.env.register"

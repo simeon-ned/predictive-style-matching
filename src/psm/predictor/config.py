@@ -16,8 +16,9 @@ HIDDEN_SIZE = 128
 # Device configuration
 DEVICE = "cuda"
 
-# Data paths (NPZ motion clips for predictor training).
-MOTION_FILES_PATTERN = "data/motions/*.npz"
+# Training motion: per-clip NPZ glob; train auto-builds data/motions/motions.npz.
+MOTION_DIR = "data/motions"
+MOTION_FILES_PATTERN = f"{MOTION_DIR}/*.npz"
 
 # NPZ schema: compact per-clip export and optional full fields (``qpos``, ``body_pos_r``, …).
 # Minimum keys: joint_names, joint_pos, body_pos_w, body_quat_w, body_lin_vel_w, body_ang_vel_w.

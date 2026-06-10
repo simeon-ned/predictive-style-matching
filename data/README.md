@@ -1,21 +1,52 @@
 # Motion data
 
-Place motion NPZ clips for PSM predictor training under `motions/`.
-
-Training data may be tracked with Git LFS. To fetch:
+## Quick start (recommended)
 
 ```bash
-bash src/psm/scripts/lfs_pull_data.sh
+# CSV or GMR PKL → extended NPZ (FK + PSM features, GPU)
+psm-data-to-npz --input-path data/seed --output-dir data/motions
+
+# Or augment existing compact NPZ clips in place:
+psm-augment-npz --input-path data/motions
+
+# Train (auto-builds motions.npz from clips if needed)
+psm-predictor-train
+
+# Visualize a converted clip (Viser browser viewer)
+psm-vis-npz --npz data/motions/your_clip.npz
+psm-vis-npz --motion-dir data/motions
 ```
 
-## NPZ format
+## Input formats (`psm-data-to-npz`)
 
-Predictor training accepts **compact** per-clip NPZ files with at least:
+| Format | Layout |
+|--------|--------|
+| **CSV** | `root_pos(3) + root_rot_xyzw(4) + joint_pos(n_dof)` per row, no header. Default input rate 30 Hz. |
+| **PKL (GMR)** | Dict with `fps`, `root_pos (T×3)`, `root_rot (T×4, xyzw)`, `dof_pos (T×n_dof)`. Optional: `joint_names`, `dof_joint_names`, or `joint_order`. |
 
-- `joint_names`, `joint_pos`, `joint_vel` (optional)
-- `body_pos_w`, `body_quat_w`, `body_lin_vel_w`, `body_ang_vel_w`
-- `fps`, `robot` (optional)
+Both are resampled to 50 Hz and run through G1 FK before export.
 
-**Full** NPZ files (with `qpos`, `body_pos_r`, …) are also supported. The loader derives missing fields automatically (`psm.predictor.npz_schema`).
+## Layout
 
-Default training glob: `data/motions/*.npz` (see `psm.predictor.config.MOTION_FILES_PATTERN`).
+| Path | Role |
+|------|------|
+| `data/motions/raw/` | Source CSV/PKL clips (optional) |
+| `data/motions/*.npz` | Per-clip extended NPZ (`psm_*` keys + kinematics) |
+| `data/motions/motions.npz` | Stacked training bundle (`segment_start_idx`, …) |
+
+## Extended NPZ schema
+
+Each clip NPZ includes kinematics plus precomputed predictor arrays:
+
+- **Kinematics:** `joint_pos`, `qpos`, `body_pos_w`, `body_pos_r`, …
+- **PSM training:** `psm_lower_joints`, `psm_upper_joints`, `psm_foot_pos_hist`, `psm_body_features`, `psm_cmd_features`, …
+
+Feature config is baked in at conversion time (`psm.predictor.config` joint lists and `CMD_TRAJ_HORIZONS`). Re-run conversion if you change those.
+
+## Legacy compact NPZ
+
+Clips without `psm_*` keys are upgraded automatically when you run `psm-predictor-train`, or manually via `psm-augment-npz`.
+
+## Git
+
+Motion files under `data/` are **gitignored** (not pushed). Only `data/README.md` and `.gitkeep` placeholders are tracked. Add your own CSV/PKL clips locally.

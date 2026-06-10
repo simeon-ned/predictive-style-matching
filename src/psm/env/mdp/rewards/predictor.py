@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, cast
 
 import torch
@@ -147,28 +148,28 @@ def step_length_matching(
   vel_threshold: float = 0.1,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   sensor_name: str = "feet_ground_contact",
-  last_step_length: list[torch.Tensor] = [],
+  last_step_length: list[torch.Tensor] | None = None,
+  kernel: str = "exp",
+  method: str = "instant",
 ) -> torch.Tensor:
-  """Reward maintaining an adaptive step length between feet based on command speed."""
-  
-  
+  """Track forward foot separation vs predictor ``step_length`` target."""
   mask = _predictor_ready_mask(env)
   cmd = _get_predictor_command(env)
+  del asset_cfg, sensor_name, last_step_length
   target_raw = cmd.get_step_length_target()
   if target_raw is None or mask.sum() == 0:
     return torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
   target = target_raw.clamp(min=min_target_length, max=max_target_length)
-
-  return step_length(
-    env=env,
-    std=std,
-    target_length=target,
-    command_name=command_name,
-    vel_threshold=vel_threshold,
-    asset_cfg=asset_cfg,
-    sensor_name=sensor_name,
-    last_step_length=last_step_length,
-  )
+  if method == "instant":
+    dx, _ = _feet_local_xy_separation_from_predictor(env, cmd)
+  else:
+    raise ValueError(f"method must be 'instant'; got {method!r}.")
+  err = dx - target
+  base = _apply_tracking_kernel(err**2, torch.abs(err), kernel=kernel, std=std) * mask
+  cmd_vel = env.command_manager.get_command(command_name)
+  assert cmd_vel is not None, f"Command '{command_name}' not found."
+  gate = (torch.norm(cmd_vel[:, :2], dim=1) > vel_threshold).float()
+  return base * gate
 
 
 def root_height_matching(
